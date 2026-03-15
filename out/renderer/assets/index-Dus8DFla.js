@@ -7011,6 +7011,18 @@ const translations = {
     set_theme: "Theme",
     theme_fleet: "FleetWatch",
     theme_apathy: "Vulnerable Apathy",
+    set_cookies: "Cookies (if YouTube blocks downloads)",
+    set_cookies_hint: "Off works for most videos. Chrome not listed — broken in Chrome 127+. Use Edge or Firefox.",
+    set_update_ytdlp: "Update yt-dlp engine",
+    set_updating: "Updating...",
+    set_updated: "Up to date ✓",
+    set_update_failed: "Update failed",
+    set_extract_cookies: "YouTube Account Cookies",
+    set_extract_cookies_hint: "Opens YouTube in a built-in window. Sign in once — next time the session is already saved, just close the window.",
+    set_extract_no_browser: "Select a browser above first (not Off)",
+    set_extracting: "Waiting for you to close the window...",
+    set_extract_ok: "Cookies saved ✓",
+    set_extract_fail: "No cookies found",
     // Setup overlay
     setup_sub: "First launch: downloading yt-dlp engine (~10 MB from GitHub)",
     setup_init: "Initialize Engine",
@@ -7018,7 +7030,13 @@ const translations = {
     setup_loading: "Downloading yt-dlp... may take a minute",
     setup_manual: "Or install yt-dlp manually and restart:",
     // Fetch error
-    fetch_failed: "Failed to fetch info"
+    fetch_failed: "Failed to fetch info",
+    err_cookie_hint: "Cookie issue?",
+    playlist_detected: "Playlist detected",
+    playlist_count: "videos",
+    playlist_loading: "Loading playlist...",
+    playlist_download_all: "Download all",
+    playlist_download_one: "This video only"
   },
   ru: {
     // Sidebar
@@ -7064,6 +7082,18 @@ const translations = {
     set_theme: "Тема",
     theme_fleet: "FleetWatch",
     theme_apathy: "Vulnerable Apathy",
+    set_cookies: "Куки (если YouTube блокирует)",
+    set_cookies_hint: "Off работает для большинства видео. Chrome не поддерживается (сломан в Chrome 127+). Используй Edge или Firefox.",
+    set_update_ytdlp: "Обновить движок yt-dlp",
+    set_updating: "Обновляю...",
+    set_updated: "Актуально ✓",
+    set_update_failed: "Ошибка обновления",
+    set_extract_cookies: "Куки аккаунта YouTube",
+    set_extract_cookies_hint: "Открывает YouTube во встроенном окне. Войдите один раз — в следующий раз сессия уже сохранена, просто закройте окно.",
+    set_extract_no_browser: "Сначала выберите браузер выше (не Off)",
+    set_extracting: "Ожидаю закрытия окна...",
+    set_extract_ok: "Куки сохранены ✓",
+    set_extract_fail: "Куки не найдены",
     // Setup overlay
     setup_sub: "Первый запуск: скачивание движка yt-dlp (~10 МБ с GitHub)",
     setup_init: "Инициализировать",
@@ -7071,7 +7101,13 @@ const translations = {
     setup_loading: "Скачивание yt-dlp... может занять минуту",
     setup_manual: "Или установите yt-dlp вручную и перезапустите:",
     // Fetch error
-    fetch_failed: "Не удалось получить информацию"
+    fetch_failed: "Не удалось получить информацию",
+    err_cookie_hint: "Проблема с cookies?",
+    playlist_detected: "Обнаружен плейлист",
+    playlist_count: "видео",
+    playlist_loading: "Загружаю плейлист...",
+    playlist_download_all: "Скачать все",
+    playlist_download_one: "Только это видео"
   }
 };
 const DEFAULTS = {
@@ -7117,6 +7153,11 @@ async function clearHistory() {
   }
 }
 const genId = () => `dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const isPlaylistUrl = (url) => /[?&]list=/.test(url);
+function isCookieError(err) {
+  const lower = err.toLowerCase();
+  return lower.includes("cookie") || lower.includes("sign in") || lower.includes("login") || lower.includes("403") || lower.includes("age-restricted") || lower.includes("private") || lower.includes("members") || lower.includes("dpapi") || lower.includes("chrome cookie") || lower.includes("could not copy") || lower.includes("requires authentication") || lower.includes("confirm your age") || lower.includes("not available");
+}
 function formatDur(s) {
   if (!s) return "--:--";
   const h = Math.floor(s / 3600), m2 = Math.floor(s % 3600 / 60), sec = s % 60;
@@ -7138,12 +7179,12 @@ function getFormatArgs(type, quality) {
     };
     return map[quality] ?? map.mp3_best;
   }
-  if (quality === "2160") return ["-f", "bestvideo[height<=2160]+bestaudio/best", "--merge-output-format", "mp4"];
-  if (quality === "1440") return ["-f", "bestvideo[height<=1440]+bestaudio/best", "--merge-output-format", "mp4"];
-  if (quality === "1080") return ["-f", "bestvideo[height<=1080]+bestaudio/best", "--merge-output-format", "mp4"];
-  if (quality === "720") return ["-f", "bestvideo[height<=720]+bestaudio/best", "--merge-output-format", "mp4"];
-  if (quality === "480") return ["-f", "bestvideo[height<=480]+bestaudio/best", "--merge-output-format", "mp4"];
-  return ["-f", "bestvideo[height<=360]+bestaudio/best", "--merge-output-format", "mp4"];
+  if (quality === "1080") return ["-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
+  if (quality === "720") return ["-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
+  if (quality === "480") return ["-f", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
+  if (quality === "360") return ["-f", "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
+  if (quality === "240") return ["-f", "bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=240]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
+  return ["-f", "bestvideo[height<=144][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=144]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
 }
 function getFormatLabel(type, quality) {
   if (type === "audio") {
@@ -7156,12 +7197,12 @@ function getFormatLabel(type, quality) {
     return m22[quality] ?? "Audio";
   }
   const m2 = {
-    "2160": "4K · UHD",
-    "1440": "1440p · 2K",
     "1080": "1080p · FHD",
     "720": "720p · HD",
     "480": "480p · SD",
-    "360": "360p"
+    "360": "360p",
+    "240": "240p",
+    "144": "144p"
   };
   return m2[quality] ?? quality;
 }
@@ -7336,7 +7377,7 @@ function VideoInfoCard({ info, loading, t: t2 }) {
     ] })
   ] });
 }
-function FormatSelector({ onDownload, disabled, t: t2, initType, initVq, initAq, onFormatChange }) {
+function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, initVq, initAq, onFormatChange, playlist }) {
   const [ftype, setFtype] = reactExports.useState(initType);
   const [vq, setVq] = reactExports.useState(initVq);
   const [aq, setAq] = reactExports.useState(initAq);
@@ -7353,12 +7394,12 @@ function FormatSelector({ onDownload, disabled, t: t2, initType, initVq, initAq,
     onFormatChange(ftype, vq, v2);
   };
   const VQ = [
-    { v: "2160", label: "4K", badge: "UHD" },
-    { v: "1440", label: "1440p", badge: "2K" },
     { v: "1080", label: "1080p", badge: "FHD" },
     { v: "720", label: "720p", badge: "HD" },
     { v: "480", label: "480p", badge: "SD" },
-    { v: "360", label: "360p", badge: "" }
+    { v: "360", label: "360p", badge: "" },
+    { v: "240", label: "240p", badge: "" },
+    { v: "144", label: "144p", badge: "" }
   ];
   const AQ = [
     { v: "mp3_best", fmt: "MP3", sub: "Best" },
@@ -7399,6 +7440,22 @@ function FormatSelector({ onDownload, disabled, t: t2, initType, initVq, initAq,
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: ftype === "audio" ? t2.btn_download_audio : t2.btn_download_video }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-now-q", children: ftype === "video" ? VQ.find((q2) => q2.v === vq)?.label : AQ.find((q2) => q2.v === aq)?.sub })
+    ] }),
+    playlist && playlist.length > 1 && onDownloadAll && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-all-btn", onClick: () => onDownloadAll(ftype, ftype === "video" ? vq : aq), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "6", x2: "21", y2: "6" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "12", x2: "21", y2: "12" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "18", x2: "21", y2: "18" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "6", x2: "3.01", y2: "6" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "12", x2: "3.01", y2: "12" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "18", x2: "3.01", y2: "18" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.playlist_download_all }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-now-q", children: [
+        playlist.length,
+        " ",
+        t2.playlist_count
+      ] })
     ] })
   ] });
 }
@@ -7418,7 +7475,7 @@ const STATUS_LABEL = (t2) => ({
   error: t2.st_error,
   cancelled: t2.st_cancelled
 });
-function DownloadCard({ item, onCancel, onOpen, t: t2 }) {
+function DownloadCard({ item, onCancel, onOpen, onCookieHint, t: t2 }) {
   const c = STATUS_COLOR[item.status];
   const labels = STATUS_LABEL(t2);
   const showBar = item.status === "downloading" || item.status === "processing" || item.status === "complete";
@@ -7457,7 +7514,17 @@ function DownloadCard({ item, onCancel, onOpen, t: t2 }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dl-bar", style: { width: `${item.status === "complete" ? 100 : item.progress}%`, background: c } }),
         item.status === "downloading" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dl-glow", style: { left: `${item.progress}%`, background: c } })
       ] }),
-      item.error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dl-err", children: item.error })
+      item.error && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dl-err-wrap", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-err", children: item.error }),
+        isCookieError(item.error) && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
+          ] }),
+          t2.err_cookie_hint
+        ] })
+      ] })
     ] })
   ] });
 }
@@ -7546,9 +7613,43 @@ function ThemeCards({ current, onChange, t: t2 }) {
     ] })
   ] });
 }
-function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeChange }) {
+function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeChange, highlightCookies }) {
   const [local, setLocal] = reactExports.useState(settings);
+  const [updateState, setUpdateState] = reactExports.useState("idle");
+  const [extractState, setExtractState] = reactExports.useState("idle");
+  const [extractError, setExtractError] = reactExports.useState("");
+  const [ytLoggedIn, setYtLoggedIn] = reactExports.useState(false);
+  const cookiesRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    window.api?.checkYtSession().then((r2) => setYtLoggedIn(r2.loggedIn)).catch(() => {
+    });
+  }, []);
+  reactExports.useEffect(() => {
+    if (highlightCookies && cookiesRef.current) {
+      cookiesRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightCookies]);
   reactExports.useEffect(() => setLocal(settings), [settings]);
+  const handleUpdate = async () => {
+    setUpdateState("busy");
+    const r2 = await window.api?.updateYtDlp();
+    setUpdateState(r2?.success ? "ok" : "fail");
+    setTimeout(() => setUpdateState("idle"), 3e3);
+  };
+  const handleExtract = async () => {
+    if (local.cookiesFromBrowser === "none") return;
+    setExtractState("busy");
+    setExtractError("");
+    const r2 = await window.api?.extractBrowserCookies();
+    if (r2?.success) {
+      setExtractState("ok");
+      setYtLoggedIn(true);
+    } else {
+      setExtractState("fail");
+      setExtractError(r2?.error || "");
+    }
+    setTimeout(() => setExtractState("idle"), 5e3);
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-view", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "section-title", children: t2.set_title }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
@@ -7575,6 +7676,51 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
         n2
       )) })
     ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_cookies }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-hint", children: t2.set_cookies_hint }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-radios", style: { flexWrap: "wrap", gap: "6px" }, children: ["none", "edge", "firefox", "brave"].map((b) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: `set-radio ${local.cookiesFromBrowser === b ? "set-radio-on" : ""}`,
+          style: { minWidth: "64px", textTransform: "capitalize" },
+          onClick: () => setLocal((p2) => ({ ...p2, cookiesFromBrowser: b })),
+          children: b === "none" ? "Off" : b
+        },
+        b
+      )) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: cookiesRef, className: `set-group ${highlightCookies ? "set-group-highlight" : ""}`, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_extract_cookies }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-hint", children: t2.set_extract_cookies_hint }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: `set-extract-btn ${extractState === "ok" ? "set-extract-ok" : extractState === "fail" ? "set-extract-fail" : ""}`,
+          onClick: handleExtract,
+          disabled: extractState === "busy",
+          children: extractState === "busy" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
+            t2.set_extracting
+          ] }) : extractState === "ok" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
+            t2.set_extract_ok
+          ] }) : extractState === "fail" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
+            ] }),
+            t2.set_extract_fail
+          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.7", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
+            t2.set_extract_cookies,
+            ytLoggedIn && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-extract-browser", children: "✓ signed in" })
+          ] })
+        }
+      ),
+      extractState === "fail" && extractError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-extract-error", children: extractError })
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "set-save", onClick: () => onSave(local), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" }),
@@ -7582,7 +7728,17 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
         /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "7 3 7 8 15 8" })
       ] }),
       t2.set_save
-    ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "set-update-btn", onClick: handleUpdate, disabled: updateState === "busy", children: updateState === "busy" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
+      t2.set_updating
+    ] }) : updateState === "ok" ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--g)" }, children: t2.set_updated }) : updateState === "fail" ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--r)" }, children: t2.set_update_failed }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "23 4 23 10 17 10" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20.49 15a9 9 0 1 1-2.12-9.36L23 10" })
+      ] }),
+      t2.set_update_ytdlp
+    ] }) })
   ] });
 }
 function SetupOverlay({ onSetup, loading, error, t: t2 }) {
@@ -7616,7 +7772,7 @@ function App() {
   const [lang, setLang] = reactExports.useState("en");
   const [theme, setTheme] = reactExports.useState("fleet");
   const [initFmt, setInitFmt] = reactExports.useState({ type: "video", vq: "1080", aq: "mp3_best" });
-  const [settings, setSettings] = reactExports.useState({ downloadPath: "", defaultFormat: "mp4", defaultQuality: "1080", concurrentDownloads: 3 });
+  const [settings, setSettings] = reactExports.useState({ downloadPath: "", defaultFormat: "mp4", defaultQuality: "1080", concurrentDownloads: 3, cookiesFromBrowser: "none" });
   const [downloads, setDownloads] = reactExports.useState([]);
   const [videoInfo, setVideoInfo] = reactExports.useState(null);
   const [fetching, setFetching] = reactExports.useState(false);
@@ -7626,6 +7782,9 @@ function App() {
   const [setupBusy, setSetupBusy] = reactExports.useState(false);
   const [setupError, setSetupError] = reactExports.useState("");
   const [appLoaded, setAppLoaded] = reactExports.useState(false);
+  const [highlightCookies, setHighlightCookies] = reactExports.useState(false);
+  const [playlist, setPlaylist] = reactExports.useState(null);
+  const [playlistLoading, setPlaylistLoading] = reactExports.useState(false);
   const urlRef = reactExports.useRef("");
   const t2 = translations[lang];
   const toggleLang = () => {
@@ -7709,11 +7868,19 @@ function App() {
     setFetching(true);
     setFetchErr("");
     setVideoInfo(null);
+    setPlaylist(null);
     urlRef.current = url;
     const r2 = await window.api.fetchVideoInfo(url);
     setFetching(false);
     if (r2.success && r2.data) {
       setVideoInfo(r2.data);
+      if (isPlaylistUrl(url)) {
+        setPlaylistLoading(true);
+        window.api.fetchPlaylistInfo(url).then((pr) => {
+          if (pr.success && pr.entries && pr.entries.length > 1) setPlaylist(pr.entries);
+          setPlaylistLoading(false);
+        }).catch(() => setPlaylistLoading(false));
+      }
     } else {
       setFetchErr(r2.error || "Failed to fetch info");
     }
@@ -7733,11 +7900,43 @@ function App() {
       progress: 0,
       createdAt: Date.now()
     }, ...p2]);
-    const r2 = await window.api.startDownload({ id: id2, url: urlRef.current, formatArgs, downloadPath: settings.downloadPath });
+    let downloadUrl = urlRef.current;
+    if (downloadUrl.includes("music.youtube.com") && type === "video") {
+      downloadUrl = downloadUrl.replace("music.youtube.com", "www.youtube.com");
+    }
+    const r2 = await window.api.startDownload({ id: id2, url: downloadUrl, formatArgs, downloadPath: settings.downloadPath });
     if (!r2.success) {
       setDownloads((p2) => p2.map((x2) => x2.id === id2 ? { ...x2, status: "error", error: r2.error } : x2));
     }
   }, [videoInfo, settings.downloadPath]);
+  const handleDownloadAll = reactExports.useCallback(async (type, quality) => {
+    if (!playlist || !window.api) return;
+    const formatArgs = getFormatArgs(type, quality);
+    const formatLabel = getFormatLabel(type, quality);
+    for (const entry of playlist) {
+      const id2 = genId();
+      const isMusicPlaylist = urlRef.current.includes("music.youtube");
+      const base = isMusicPlaylist ? "https://music.youtube.com" : "https://www.youtube.com";
+      const rawUrl = entry.url || entry.webpage_url || "";
+      const videoUrl = rawUrl.startsWith("http") ? rawUrl : `${base}/watch?v=${entry.id}`;
+      setDownloads((p2) => [{
+        id: id2,
+        url: videoUrl,
+        title: entry.title,
+        thumbnail: entry.thumbnail,
+        formatLabel,
+        status: "pending",
+        progress: 0,
+        createdAt: Date.now()
+      }, ...p2]);
+      window.api.startDownload({ id: id2, url: videoUrl, formatArgs, downloadPath: settings.downloadPath });
+    }
+  }, [playlist, settings.downloadPath]);
+  const handleCookieHint = reactExports.useCallback(() => {
+    setView("settings");
+    setHighlightCookies(true);
+    setTimeout(() => setHighlightCookies(false), 2500);
+  }, []);
   const handleCancel = reactExports.useCallback(async (id2) => {
     await window.api?.cancelDownload(id2);
     setDownloads((p2) => {
@@ -7782,10 +7981,32 @@ function App() {
           ] }),
           (videoInfo || fetching) && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(VideoInfoCard, { info: videoInfo, loading: fetching, t: t2 }),
+            (playlistLoading || playlist) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "playlist-banner", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "playlist-banner-left", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "6", x2: "21", y2: "6" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "12", x2: "21", y2: "12" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "18", x2: "21", y2: "18" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "6", x2: "3.01", y2: "6" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "12", x2: "3.01", y2: "12" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "18", x2: "3.01", y2: "18" })
+              ] }),
+              playlistLoading ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "playlist-loading-text", children: [
+                t2.playlist_loading,
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin", style: { marginLeft: 8 } })
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                t2.playlist_detected,
+                " · ",
+                /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: playlist?.length }),
+                " ",
+                t2.playlist_count
+              ] })
+            ] }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               FormatSelector,
               {
                 onDownload: handleDownload,
+                onDownloadAll: handleDownloadAll,
+                playlist,
                 disabled: !videoInfo || fetching,
                 t: t2,
                 initType: initFmt.type,
@@ -7805,14 +8026,14 @@ function App() {
                 t2.lbl_active
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, t: t2 }, d.id)) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, t: t2 }, d.id)) })
           ] })
         ] }),
         view === "history" && /* @__PURE__ */ jsxRuntimeExports.jsx(HistoryView, { downloads, t: t2, onClear: async () => {
           await clearHistory();
           setDownloads((p2) => p2.filter((d) => d.status === "downloading" || d.status === "pending"));
         } }),
-        view === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsView, { settings, onSave: handleSaveSettings, onPickFolder: handlePickFolder, t: t2, theme, onThemeChange: handleThemeChange })
+        view === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsView, { settings, onSave: handleSaveSettings, onPickFolder: handlePickFolder, t: t2, theme, onThemeChange: handleThemeChange, highlightCookies })
       ] })
     ] })
   ] });

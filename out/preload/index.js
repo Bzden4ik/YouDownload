@@ -8,6 +8,7 @@ const api = {
   getSettings: () => electron.ipcRenderer.invoke("get-settings"),
   saveSettings: (s) => electron.ipcRenderer.invoke("save-settings", s),
   selectDownloadFolder: () => electron.ipcRenderer.invoke("select-download-folder"),
+  selectCookiesFile: () => electron.ipcRenderer.invoke("select-cookies-file"),
   // Persistent app state
   getAppState: () => electron.ipcRenderer.invoke("get-app-state"),
   saveAppState: (patch) => electron.ipcRenderer.invoke("save-app-state", patch),
@@ -18,7 +19,12 @@ const api = {
   // yt-dlp
   checkYtDlp: () => electron.ipcRenderer.invoke("check-ytdlp"),
   setupYtDlp: () => electron.ipcRenderer.invoke("setup-ytdlp"),
+  updateYtDlp: () => electron.ipcRenderer.invoke("update-ytdlp"),
+  detectBrowser: () => electron.ipcRenderer.invoke("detect-browser"),
+  checkYtSession: () => electron.ipcRenderer.invoke("check-yt-session"),
+  extractBrowserCookies: () => electron.ipcRenderer.invoke("extract-browser-cookies"),
   fetchVideoInfo: (url) => electron.ipcRenderer.invoke("fetch-video-info", url),
+  fetchPlaylistInfo: (url) => electron.ipcRenderer.invoke("fetch-playlist-info", url),
   startDownload: (p) => electron.ipcRenderer.invoke("start-download", p),
   cancelDownload: (id) => electron.ipcRenderer.invoke("cancel-download", id),
   openFolder: (path) => electron.ipcRenderer.invoke("open-folder", path),

@@ -9,6 +9,7 @@ const api = {
   getSettings:          ()  => ipcRenderer.invoke('get-settings'),
   saveSettings:         (s: unknown) => ipcRenderer.invoke('save-settings', s),
   selectDownloadFolder: ()  => ipcRenderer.invoke('select-download-folder'),
+  selectCookiesFile:    ()  => ipcRenderer.invoke('select-cookies-file'),
 
   // Persistent app state
   getAppState:  () => ipcRenderer.invoke('get-app-state'),
@@ -22,7 +23,12 @@ const api = {
   // yt-dlp
   checkYtDlp:    () => ipcRenderer.invoke('check-ytdlp'),
   setupYtDlp:    () => ipcRenderer.invoke('setup-ytdlp'),
+  updateYtDlp:   () => ipcRenderer.invoke('update-ytdlp'),
+  detectBrowser: () => ipcRenderer.invoke('detect-browser'),
+  checkYtSession:        () => ipcRenderer.invoke('check-yt-session'),
+  extractBrowserCookies: () => ipcRenderer.invoke('extract-browser-cookies'),
   fetchVideoInfo: (url: string) => ipcRenderer.invoke('fetch-video-info', url),
+  fetchPlaylistInfo: (url: string) => ipcRenderer.invoke('fetch-playlist-info', url),
   startDownload:  (p: unknown) => ipcRenderer.invoke('start-download', p),
   cancelDownload: (id: string) => ipcRenderer.invoke('cancel-download', id),
   openFolder:     (path: string) => ipcRenderer.invoke('open-folder', path),

@@ -1,131 +1,81 @@
-<div align="center">
-
-<img src="resources/icon.svg" width="96" height="96" alt="YouDownload Logo"/>
-
 # YouDownload
 
-**Futuristic desktop downloader for YouTube & 1000+ sites**
-
-[![Release](https://img.shields.io/github/v/release/warfa/YouDownload?style=flat-square&color=4ADE80)](https://github.com/Bzden4ik/YouDownload/releases/tag/1.0.0)
-[![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square)](https://github.com/warfa/YouDownload/releases)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Electron](https://img.shields.io/badge/Electron-33-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
-
-</div>
+Десктопный загрузчик видео и аудио с YouTube, YouTube Music и 1000+ других сайтов. Построен на Electron + React, использует yt-dlp как движок загрузки.
 
 ---
 
-## Features
+## Возможности
 
-- **Video download** — 4K / 1440p / 1080p / 720p / 480p / 360p
-- **Audio extraction** — MP3 (best / 192k / 128k) and M4A
-- **YouTube Music** support
-- **Shorts & Playlists** support
-- **1000+ sites** via yt-dlp engine
-- **Real-time progress** — speed, ETA, progress bar
-- **Download history** — persisted across sessions
-- **Two themes** — FleetWatch (green/cyan) and Vulnerable Apathy (pink/blue glassmorphism)
-- **English / Russian** interface
-- **All settings saved** between launches
+- Загрузка видео (до 1080p) и аудио (MP3, M4A) с YouTube и YouTube Music
+- Поддержка плейлистов — загрузка всего плейлиста одной кнопкой
+- Два визуальных стиля: **FleetWatch** (тёмный зелёный) и **Vulnerable Apathy** (неоновый розово-синий)
+- Интерфейс на русском и английском языках
+- Встроенное окно авторизации YouTube для получения cookies (работает без сторонних браузеров)
+- История загрузок, управление папкой сохранения, параллельные загрузки
+- Авто-обновление yt-dlp при каждом запуске
 
 ---
 
-## Screenshots
+## Стек
 
-| FleetWatch Theme | Vulnerable Apathy Theme |
-|---|---|
-| Dark futuristic UI with green accents | Glassmorphism with neon pink/blue orbs |
-
----
-
-## Download
-
-Go to [**Releases**](https://github.com/warfa/YouDownload/releases) and download the latest installer.
-
-```
-YouDownload Setup 1.0.0.exe
-```
-
-Run it, follow the installer, done.
+| Слой | Технология |
+|------|-----------|
+| Оболочка | Electron 33 |
+| UI | React 18 + TypeScript |
+| Сборщик | electron-vite + electron-builder |
+| Движок загрузки | yt-dlp (бинарник в `bin/`) |
+| Хранилище | electron-store |
+| Обёртка yt-dlp | yt-dlp-wrap |
 
 ---
 
-## Requirements
-
-- **Windows 10 / 11** x64
-- **Internet connection** on first launch (downloads yt-dlp engine ~10 MB)
-- **ffmpeg** *(optional but recommended)* — required for merging video+audio at 1080p and above
-
-### Install ffmpeg
-
-```powershell
-winget install Gyan.FFmpeg
-```
-
-Or download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Framework | [Electron 33](https://www.electronjs.org/) |
-| Frontend | React 18 + TypeScript |
-| Bundler | electron-vite |
-| Downloader | [yt-dlp](https://github.com/yt-dlp/yt-dlp) via yt-dlp-wrap |
-| Storage | electron-store |
-| Fonts | Orbitron, Barlow Condensed, Syncopate, Space Grotesk, Azeret Mono |
-
----
-
-## Build from Source
+## Запуск в dev-режиме
 
 ```bash
-git clone https://github.com/warfa/YouDownload.git
-cd YouDownload
-
-# Install dependencies
-npm install --include=dev
-
-# Run in dev mode
+cd C:\Users\warfa\Documents\GitHub\YouDownload
+npm install
 npm run dev
+```
 
-# Generate icons (requires sharp-cli: npm install -g sharp-cli)
-npm run build:icon
+При первом запуске приложение автоматически скачает `yt-dlp.exe` (~10 МБ) с GitHub в папку `bin/`.
 
-# Build installer
+
+## Требования
+
+- **Node.js 18+** — https://nodejs.org
+- **ffmpeg** — нужен для слияния видео и аудио дорожек при скачивании видео
+  - Скачать: https://ffmpeg.org/download.html → добавить в PATH
+
+---
+
+## Сборка установщика
+
+```bash
 npm run package
 ```
 
-Output: `dist/YouDownload Setup 1.0.0.exe`
+Результат — `dist/YouDownload Setup 1.0.0.exe`
 
 ---
 
-## Project Structure
+## Структура проекта
 
 ```
-YouDownload/
-├── src/
-│   ├── main/          # Electron main process (IPC, yt-dlp, electron-store)
-│   ├── preload/       # Context bridge (exposes API to renderer)
-│   └── renderer/      # React app
-│       └── src/
-│           ├── App.tsx           # Main component + all UI
-│           ├── i18n.ts           # EN/RU translations
-│           ├── storage.ts        # Persistent state via IPC
-│           ├── globals.css       # FleetWatch theme
-│           └── theme-apathy.css  # Vulnerable Apathy theme
-├── resources/
-│   └── icon.svg       # Source icon
-├── build/             # Generated icons (icon.ico, icon.png)
-├── scripts/
-│   └── gen-icon.mjs   # Icon generation script
-└── bin/               # yt-dlp binary (downloaded on first launch)
+src/
+  main/         — главный процесс Electron (IPC, yt-dlp, настройки)
+  preload/      — bridge между renderer и main
+  renderer/src/ — React UI (App.tsx, стили, локализация)
+bin/
+  yt-dlp.exe    — движок загрузки
+  cookies.txt   — cookies YouTube (опционально)
 ```
 
 ---
 
-## License
+## Cookies и возрастные ограничения
 
-MIT — feel free to fork, modify, and distribute.
+Для загрузки видео с возрастными ограничениями или контента для участников нужны cookies YouTube.
+
+**Настройки → Куки аккаунта YouTube → нажать кнопку**
+
+Откроется встроенное окно с YouTube. Войдите в аккаунт и закройте окно — cookies сохранятся автоматически. При следующих нажатиях сессия уже сохранена, просто закройте окно.

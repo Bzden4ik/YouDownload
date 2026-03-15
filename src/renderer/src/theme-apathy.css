@@ -17,6 +17,7 @@
   pointer-events: none;
   z-index: 0;
   overflow: hidden;
+  clip-path: inset(0);
 }
 
 .ap-orb {
@@ -38,7 +39,7 @@
 .ap-orb-2 {
   width: 500px; height: 500px;
   background: #4D7CFF;
-  bottom: -100px; right: -100px;
+  bottom: 0px; right: 0px;
   animation-duration: 34s;
   animation-delay: -10s;
 }
@@ -280,7 +281,7 @@
 [data-theme="apathy"] .q-btn-on .q-main { color: #FF3B7C; }
 [data-theme="apathy"] .q-btn-on .q-badge { color: rgba(255,59,124,0.65); }
 
-/* ── Download button — glitch effect ── */
+/* ── Download button — one-shot glitch on hover, then calm glow ── */
 [data-theme="apathy"] .dl-now-btn {
   background: transparent;
   border: 1px solid rgba(255,59,124,0.3);
@@ -289,25 +290,29 @@
   font-family: 'Space Grotesk', system-ui, sans-serif;
   font-weight: 500;
   letter-spacing: 0.1em;
-  transition: all 0.7s cubic-bezier(0.25,0.46,0.45,0.94);
+  transition: background 0.7s cubic-bezier(0.25,0.46,0.45,0.94),
+              border-color 0.7s cubic-bezier(0.25,0.46,0.45,0.94),
+              box-shadow 0.7s cubic-bezier(0.25,0.46,0.45,0.94);
   position: relative;
-  overflow: visible;
+  overflow: hidden;
 }
+
+/* shimmer глобального CSS не нужен в Apathy */
+[data-theme="apathy"] .dl-now-btn::before { display: none; }
 
 [data-theme="apathy"] .dl-now-btn:hover:not(:disabled) {
-  background: rgba(255,59,124,0.06);
-  border-color: rgba(255,59,124,0.6);
-  box-shadow: 0 0 30px rgba(255,59,124,0.2), inset 0 0 20px rgba(255,59,124,0.04);
-  animation: ap-glitch 0.1s linear;
+  background: rgba(255,59,124,0.05);
+  border-color: rgba(255,59,124,0.5);
+  box-shadow: 0 0 24px rgba(255,59,124,0.15), inset 0 0 16px rgba(255,59,124,0.03);
+  animation: ap-glitch 0.12s steps(2) 1;
 }
 
+/* микро-глитч: один раз, 0.12s, тихий RGB-сдвиг без дёрганья */
 @keyframes ap-glitch {
-  0%   { text-shadow: none; }
-  20%  { text-shadow: 2px 0 #4D7CFF, -2px 0 #FF3B7C; clip-path: inset(10% 0 80% 0); }
-  40%  { text-shadow: -2px 0 #4D7CFF, 2px 0 #FF3B7C; clip-path: inset(60% 0 20% 0); }
-  60%  { text-shadow: 2px 0 #4D7CFF; }
-  80%  { text-shadow: none; clip-path: none; }
-  100% { text-shadow: none; clip-path: none; }
+  0%   { text-shadow: none; filter: none; }
+  40%  { text-shadow: -1.5px 0 #4D7CFF, 1.5px 0 #FF3B7C; filter: blur(0.3px); }
+  80%  { text-shadow: 1px 0 #4D7CFF; filter: blur(0); }
+  100% { text-shadow: none; filter: none; }
 }
 
 [data-theme="apathy"] .dl-now-q {

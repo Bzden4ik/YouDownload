@@ -53,6 +53,18 @@ export const translations = {
     set_theme:         'Theme',
     theme_fleet:       'FleetWatch',
     theme_apathy:      'Vulnerable Apathy',
+    set_cookies:       'Cookies (if YouTube blocks downloads)',
+    set_cookies_hint:  'Off works for most videos. Chrome not listed — broken in Chrome 127+. Use Edge or Firefox.',
+    set_update_ytdlp:  'Update yt-dlp engine',
+    set_updating:      'Updating...',
+    set_updated:       'Up to date ✓',
+    set_update_failed: 'Update failed',
+    set_extract_cookies:      'YouTube Account Cookies',
+    set_extract_cookies_hint: 'Opens YouTube in a built-in window. Sign in once — next time the session is already saved, just close the window.',
+    set_extract_no_browser:   'Select a browser above first (not Off)',
+    set_extracting:           'Waiting for you to close the window...',
+    set_extract_ok:           'Cookies saved ✓',
+    set_extract_fail:         'No cookies found',
 
     // Setup overlay
     setup_sub:      'First launch: downloading yt-dlp engine (~10 MB from GitHub)',
@@ -63,6 +75,12 @@ export const translations = {
 
     // Fetch error
     fetch_failed:  'Failed to fetch info',
+    err_cookie_hint: 'Cookie issue?',
+    playlist_detected: 'Playlist detected',
+    playlist_count: 'videos',
+    playlist_loading: 'Loading playlist...',
+    playlist_download_all: 'Download all',
+    playlist_download_one: 'This video only',
   },
 
   ru: {
@@ -117,6 +135,18 @@ export const translations = {
     set_theme:         'Тема',
     theme_fleet:       'FleetWatch',
     theme_apathy:      'Vulnerable Apathy',
+    set_cookies:       'Куки (если YouTube блокирует)',
+    set_cookies_hint:  'Off работает для большинства видео. Chrome не поддерживается (сломан в Chrome 127+). Используй Edge или Firefox.',
+    set_update_ytdlp:  'Обновить движок yt-dlp',
+    set_updating:      'Обновляю...',
+    set_updated:       'Актуально ✓',
+    set_update_failed: 'Ошибка обновления',
+    set_extract_cookies:      'Куки аккаунта YouTube',
+    set_extract_cookies_hint: 'Открывает YouTube во встроенном окне. Войдите один раз — в следующий раз сессия уже сохранена, просто закройте окно.',
+    set_extract_no_browser:   'Сначала выберите браузер выше (не Off)',
+    set_extracting:           'Ожидаю закрытия окна...',
+    set_extract_ok:           'Куки сохранены ✓',
+    set_extract_fail:         'Куки не найдены',
 
     // Setup overlay
     setup_sub:      'Первый запуск: скачивание движка yt-dlp (~10 МБ с GitHub)',
@@ -127,6 +157,12 @@ export const translations = {
 
     // Fetch error
     fetch_failed:  'Не удалось получить информацию',
+    err_cookie_hint: 'Проблема с cookies?',
+    playlist_detected: 'Обнаружен плейлист',
+    playlist_count: 'видео',
+    playlist_loading: 'Загружаю плейлист...',
+    playlist_download_all: 'Скачать все',
+    playlist_download_one: 'Только это видео',
   }
 } as const
 

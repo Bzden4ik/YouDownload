@@ -18,9 +18,18 @@ interface VideoInfo {
   webpage_url?: string
 }
 
+interface PlaylistEntry {
+  id: string
+  title: string
+  url?: string
+  webpage_url?: string
+  thumbnail?: string
+  duration?: number
+}
+
 type DownloadStatus = 'pending' | 'downloading' | 'processing' | 'complete' | 'error' | 'cancelled'
 type FormatType = 'video' | 'audio'
-type VideoQuality = '2160' | '1440' | '1080' | '720' | '480' | '360'
+type VideoQuality = '1080' | '720' | '480' | '360' | '240' | '144'
 type AudioQuality = 'mp3_best' | 'mp3_192' | 'mp3_128' | 'm4a'
 type Theme = 'fleet' | 'apathy'
 type View = 'download' | 'history' | 'settings'
@@ -44,11 +53,24 @@ interface AppSettings {
   defaultFormat: string
   defaultQuality: string
   concurrentDownloads: number
+  cookiesFromBrowser: string
+  cookiesFile: string
 }
 
 // ═══════════════════════ HELPERS ═══════════════════════
 
 const genId = () => `dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const isPlaylistUrl = (url: string) => /[?&]list=/.test(url)
+
+function isCookieError(err: string): boolean {
+  const lower = err.toLowerCase()
+  return lower.includes('cookie') || lower.includes('sign in') || lower.includes('login')
+    || lower.includes('403') || lower.includes('age-restricted') || lower.includes('private')
+    || lower.includes('members') || lower.includes('dpapi') || lower.includes('chrome cookie')
+    || lower.includes('could not copy') || lower.includes('requires authentication')
+    || lower.includes('confirm your age') || lower.includes('not available')
+}
 
 function formatDur(s?: number): string {
   if (!s) return '--:--'
@@ -75,12 +97,12 @@ function getFormatArgs(type: FormatType, quality: VideoQuality | AudioQuality): 
     }
     return map[quality as AudioQuality] ?? map.mp3_best
   }
-  if (quality === '2160') return ['-f','bestvideo[height<=2160]+bestaudio/best','--merge-output-format','mp4']
-  if (quality === '1440') return ['-f','bestvideo[height<=1440]+bestaudio/best','--merge-output-format','mp4']
-  if (quality === '1080') return ['-f','bestvideo[height<=1080]+bestaudio/best','--merge-output-format','mp4']
-  if (quality === '720')  return ['-f','bestvideo[height<=720]+bestaudio/best','--merge-output-format','mp4']
-  if (quality === '480')  return ['-f','bestvideo[height<=480]+bestaudio/best','--merge-output-format','mp4']
-  return ['-f','bestvideo[height<=360]+bestaudio/best','--merge-output-format','mp4']
+  if (quality === '1080') return ['-f','bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio','--merge-output-format','mp4']
+  if (quality === '720')  return ['-f','bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/bestvideo+bestaudio','--merge-output-format','mp4']
+  if (quality === '480')  return ['-f','bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/bestvideo+bestaudio','--merge-output-format','mp4']
+  if (quality === '360')  return ['-f','bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/bestvideo+bestaudio','--merge-output-format','mp4']
+  if (quality === '240')  return ['-f','bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=240]+bestaudio/bestvideo+bestaudio','--merge-output-format','mp4']
+  return ['-f','bestvideo[height<=144][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=144]+bestaudio/bestvideo+bestaudio','--merge-output-format','mp4']
 }
 
 function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality): string {
@@ -91,7 +113,7 @@ function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality):
     return m[quality as AudioQuality] ?? 'Audio'
   }
   const m: Record<VideoQuality, string> = {
-    '2160':'4K · UHD','1440':'1440p · 2K','1080':'1080p · FHD','720':'720p · HD','480':'480p · SD','360':'360p'
+    '1080':'1080p · FHD','720':'720p · HD','480':'480p · SD','360':'360p','240':'240p','144':'144p'
   }
   return m[quality as VideoQuality] ?? quality
 }
@@ -112,7 +134,12 @@ declare global {
       clearHistory: () => Promise<boolean>
       checkYtDlp: () => Promise<{ exists: boolean; path: string }>
       setupYtDlp: () => Promise<{ success: boolean; error?: string }>
+      updateYtDlp: () => Promise<{ success: boolean; error?: string }>
+      detectBrowser: () => Promise<string | null>
+      checkYtSession:        () => Promise<{ loggedIn: boolean }>
+      extractBrowserCookies: () => Promise<{ success: boolean; error?: string }>
       fetchVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>
+      fetchPlaylistInfo: (url: string) => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
       startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string }) => Promise<{ success: boolean; error?: string }>
       cancelDownload: (id: string) => Promise<{ success: boolean }>
       openFolder: (path: string) => Promise<void>
@@ -325,14 +352,16 @@ function VideoInfoCard({ info, loading, t }: { info: VideoInfo | null; loading: 
 
 // ═══════════════════════ FORMAT SELECTOR ═══════════════════════
 
-function FormatSelector({ onDownload, disabled, t, initType, initVq, initAq, onFormatChange }: {
+function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, initVq, initAq, onFormatChange, playlist }: {
   onDownload: (type: FormatType, q: string) => void
+  onDownloadAll?: (type: FormatType, q: string) => void
   disabled: boolean
   t: Translations
   initType: FormatType
   initVq: VideoQuality
   initAq: AudioQuality
   onFormatChange: (type: FormatType, vq: VideoQuality, aq: AudioQuality) => void
+  playlist?: PlaylistEntry[] | null
 }) {
   const [ftype, setFtype] = useState<FormatType>(initType)
   const [vq, setVq]       = useState<VideoQuality>(initVq)
@@ -343,12 +372,12 @@ function FormatSelector({ onDownload, disabled, t, initType, initVq, initAq, onF
   const setAqAndSave    = (v: AudioQuality)  => { setAq(v);    onFormatChange(ftype, vq, v)   }
 
   const VQ: { v: VideoQuality; label: string; badge: string }[] = [
-    { v:'2160', label:'4K',     badge:'UHD' },
-    { v:'1440', label:'1440p',  badge:'2K'  },
-    { v:'1080', label:'1080p',  badge:'FHD' },
-    { v:'720',  label:'720p',   badge:'HD'  },
-    { v:'480',  label:'480p',   badge:'SD'  },
-    { v:'360',  label:'360p',   badge:''    },
+    { v:'1080', label:'1080p', badge:'FHD' },
+    { v:'720',  label:'720p',  badge:'HD'  },
+    { v:'480',  label:'480p',  badge:'SD'  },
+    { v:'360',  label:'360p',  badge:''    },
+    { v:'240',  label:'240p',  badge:''    },
+    { v:'144',  label:'144p',  badge:''    },
   ]
   const AQ: { v: AudioQuality; fmt: string; sub: string }[] = [
     { v:'mp3_best', fmt:'MP3', sub:'Best'    },
@@ -395,12 +424,20 @@ function FormatSelector({ onDownload, disabled, t, initType, initVq, initAq, onF
         </svg>
         <span>{ftype === 'audio' ? t.btn_download_audio : t.btn_download_video}</span>
         <span className="dl-now-q">
-          {ftype==='video'
-            ? VQ.find(q=>q.v===vq)?.label
-            : AQ.find(q=>q.v===aq)?.sub
-          }
+          {ftype==='video' ? VQ.find(q=>q.v===vq)?.label : AQ.find(q=>q.v===aq)?.sub}
         </span>
       </button>
+
+      {playlist && playlist.length > 1 && onDownloadAll && (
+        <button className="dl-all-btn" onClick={() => onDownloadAll(ftype, ftype === 'video' ? vq : aq)}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <span>{t.playlist_download_all}</span>
+          <span className="dl-now-q">{playlist.length} {t.playlist_count}</span>
+        </button>
+      )}
     </div>
   )
 }
@@ -420,8 +457,9 @@ const STATUS_LABEL = (t: Translations): Record<DownloadStatus, string> => ({
   cancelled:   t.st_cancelled,
 })
 
-function DownloadCard({ item, onCancel, onOpen, t }: {
-  item: DownloadItem; onCancel: (id: string) => void; onOpen: (id: string) => void; t: Translations
+function DownloadCard({ item, onCancel, onOpen, onCookieHint, t }: {
+  item: DownloadItem; onCancel: (id: string) => void; onOpen: (id: string) => void
+  onCookieHint: () => void; t: Translations
 }) {
   const c = STATUS_COLOR[item.status]
   const labels = STATUS_LABEL(t)
@@ -471,7 +509,19 @@ function DownloadCard({ item, onCancel, onOpen, t }: {
           </div>
         )}
 
-        {item.error && <div className="dl-err">{item.error}</div>}
+        {item.error && (
+          <div className="dl-err-wrap">
+            <span className="dl-err">{item.error}</span>
+            {isCookieError(item.error) && (
+              <button className="dl-cookie-hint" onClick={onCookieHint}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                {t.err_cookie_hint}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -587,12 +637,49 @@ function ThemeCards({ current, onChange, t }: { current: Theme; onChange: (th: T
 
 // ═══════════════════════ SETTINGS VIEW ═══════════════════════
 
-function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange }: {
+function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange, highlightCookies }: {
   settings: AppSettings; onSave: (s: AppSettings) => void; onPickFolder: () => void
-  t: Translations; theme: Theme; onThemeChange: (th: Theme) => void
+  t: Translations; theme: Theme; onThemeChange: (th: Theme) => void; highlightCookies: boolean
 }) {
   const [local, setLocal] = useState(settings)
+  const [updateState, setUpdateState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
+  const [extractState, setExtractState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
+  const [extractError, setExtractError] = useState('')
+  const [ytLoggedIn, setYtLoggedIn]     = useState(false)
+  const cookiesRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    window.api?.checkYtSession().then(r => setYtLoggedIn(r.loggedIn)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (highlightCookies && cookiesRef.current) {
+      cookiesRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlightCookies])
   useEffect(() => setLocal(settings), [settings])
+
+  const handleUpdate = async () => {
+    setUpdateState('busy')
+    const r = await window.api?.updateYtDlp()
+    setUpdateState(r?.success ? 'ok' : 'fail')
+    setTimeout(() => setUpdateState('idle'), 3000)
+  }
+
+  const handleExtract = async () => {
+    if (local.cookiesFromBrowser === 'none') return
+    setExtractState('busy')
+    setExtractError('')
+    const r = await window.api?.extractBrowserCookies()
+    if (r?.success) {
+      setExtractState('ok')
+      setYtLoggedIn(true)
+    } else {
+      setExtractState('fail')
+      setExtractError(r?.error || '')
+    }
+    setTimeout(() => setExtractState('idle'), 5000)
+  }
 
   return (
     <div className="settings-view">
@@ -626,11 +713,64 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange 
         </div>
       </div>
 
+      <div className="set-group">
+        <div className="set-label">{t.set_cookies}</div>
+        <p className="set-hint">{t.set_cookies_hint}</p>
+        <div className="set-radios" style={{flexWrap:'wrap', gap:'6px'}}>
+          {(['none','edge','firefox','brave'] as const).map(b => (
+            <button
+              key={b}
+              className={`set-radio ${local.cookiesFromBrowser===b?'set-radio-on':''}`}
+              style={{minWidth:'64px', textTransform:'capitalize'}}
+              onClick={() => setLocal(p=>({...p, cookiesFromBrowser: b}))}
+            >
+              {b === 'none' ? 'Off' : b}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Extract cookies button */}
+      <div ref={cookiesRef} className={`set-group ${highlightCookies ? 'set-group-highlight' : ''}`}>
+        <div className="set-label">{t.set_extract_cookies}</div>
+        <p className="set-hint">{t.set_extract_cookies_hint}</p>
+        <button
+          className={`set-extract-btn ${extractState === 'ok' ? 'set-extract-ok' : extractState === 'fail' ? 'set-extract-fail' : ''}`}
+          onClick={handleExtract}
+          disabled={extractState === 'busy'}
+        >
+          {extractState === 'busy' ? (
+            <><span className="spin"/>{t.set_extracting}</>
+          ) : extractState === 'ok' ? (
+            <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>{t.set_extract_ok}</>
+          ) : extractState === 'fail' ? (
+            <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{t.set_extract_fail}</>
+          ) : (
+            <>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              {t.set_extract_cookies}
+              {ytLoggedIn && <span className="set-extract-browser">✓ signed in</span>}
+            </>
+          )}
+        </button>
+        {extractState === 'fail' && extractError && (
+          <p className="set-extract-error">{extractError}</p>
+        )}
+      </div>
+
       <button className="set-save" onClick={() => onSave(local)}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
         </svg>
         {t.set_save}
+      </button>
+
+      <button className="set-update-btn" onClick={handleUpdate} disabled={updateState === 'busy'}>
+        {updateState === 'busy' ? <><span className="spin"/>{t.set_updating}</> :
+         updateState === 'ok'   ? <span style={{color:'var(--g)'}}>{t.set_updated}</span> :
+         updateState === 'fail' ? <span style={{color:'var(--r)'}}>{t.set_update_failed}</span> :
+         <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>{t.set_update_ytdlp}</>
+        }
       </button>
     </div>
   )
@@ -687,8 +827,8 @@ export default function App() {
   const [view, setView]             = useState<View>('download')
   const [lang, setLang]             = useState<Lang>('en')
   const [theme, setTheme]           = useState<Theme>('fleet')
-  const [initFmt, setInitFmt]       = useState<{ type: FormatType; vq: VideoQuality; aq: AudioQuality }>({ type:'video', vq:'1080', aq:'mp3_best' })
-  const [settings, setSettings]     = useState<AppSettings>({ downloadPath:'', defaultFormat:'mp4', defaultQuality:'1080', concurrentDownloads:3 })
+  const [initFmt, setInitFmt] = useState<{ type: FormatType; vq: VideoQuality; aq: AudioQuality }>({ type:'video', vq:'1080', aq:'mp3_best' })
+  const [settings, setSettings]     = useState<AppSettings>({ downloadPath:'', defaultFormat:'mp4', defaultQuality:'1080', concurrentDownloads:3, cookiesFromBrowser:'none' })
   const [downloads, setDownloads]   = useState<DownloadItem[]>([])
   const [videoInfo, setVideoInfo]   = useState<VideoInfo | null>(null)
   const [fetching, setFetching]     = useState(false)
@@ -698,6 +838,9 @@ export default function App() {
   const [setupBusy, setSetupBusy]   = useState(false)
   const [setupError, setSetupError] = useState('')
   const [appLoaded, setAppLoaded]   = useState(false)
+  const [highlightCookies, setHighlightCookies] = useState(false)
+  const [playlist, setPlaylist] = useState<PlaylistEntry[] | null>(null)
+  const [playlistLoading, setPlaylistLoading] = useState(false)
   const urlRef = useRef('')
 
   const t = translations[lang]
@@ -788,11 +931,21 @@ export default function App() {
 
   const handleFetch = useCallback(async (url: string) => {
     if (!window.api || !ready) return
-    setFetching(true); setFetchErr(''); setVideoInfo(null)
+    setFetching(true); setFetchErr(''); setVideoInfo(null); setPlaylist(null)
     urlRef.current = url
     const r = await window.api.fetchVideoInfo(url)
     setFetching(false)
-    if (r.success && r.data) { setVideoInfo(r.data) }
+    if (r.success && r.data) {
+      setVideoInfo(r.data)
+      // Если URL содержит плейлист — подгружаем список треков фоном
+      if (isPlaylistUrl(url)) {
+        setPlaylistLoading(true)
+        window.api.fetchPlaylistInfo(url).then(pr => {
+          if (pr.success && pr.entries && pr.entries.length > 1) setPlaylist(pr.entries)
+          setPlaylistLoading(false)
+        }).catch(() => setPlaylistLoading(false))
+      }
+    }
     else { setFetchErr(r.error || 'Failed to fetch info') }
   }, [ready])
 
@@ -807,11 +960,42 @@ export default function App() {
       formatLabel, status:'pending', progress:0, createdAt: Date.now()
     }, ...p])
 
-    const r = await window.api.startDownload({ id, url: urlRef.current, formatArgs, downloadPath: settings.downloadPath })
+    // Music URL + видео → конвертируем в обычный youtube.com (Music не отдаёт видео-форматы)
+    // Music URL + аудио → оставляем как есть
+    let downloadUrl = urlRef.current
+    if (downloadUrl.includes('music.youtube.com') && type === 'video') {
+      downloadUrl = downloadUrl.replace('music.youtube.com', 'www.youtube.com')
+    }
+
+    const r = await window.api.startDownload({ id, url: downloadUrl, formatArgs, downloadPath: settings.downloadPath })
     if (!r.success) {
       setDownloads(p => p.map(x => x.id===id ? {...x, status:'error', error: r.error} : x))
     }
   }, [videoInfo, settings.downloadPath])
+
+  const handleDownloadAll = useCallback(async (type: FormatType, quality: string) => {
+    if (!playlist || !window.api) return
+    const formatArgs = getFormatArgs(type, quality as VideoQuality | AudioQuality)
+    const formatLabel = getFormatLabel(type, quality as VideoQuality | AudioQuality)
+    for (const entry of playlist) {
+      const id = genId()
+      const isMusicPlaylist = urlRef.current.includes('music.youtube')
+      const base = isMusicPlaylist ? 'https://music.youtube.com' : 'https://www.youtube.com'
+      const rawUrl = entry.url || entry.webpage_url || ''
+      const videoUrl = rawUrl.startsWith('http') ? rawUrl : `${base}/watch?v=${entry.id}`
+      setDownloads(p => [{
+        id, url: videoUrl, title: entry.title, thumbnail: entry.thumbnail,
+        formatLabel, status: 'pending', progress: 0, createdAt: Date.now()
+      }, ...p])
+      window.api.startDownload({ id, url: videoUrl, formatArgs, downloadPath: settings.downloadPath })
+    }
+  }, [playlist, settings.downloadPath])
+
+  const handleCookieHint = useCallback(() => {
+    setView('settings')
+    setHighlightCookies(true)
+    setTimeout(() => setHighlightCookies(false), 2500)
+  }, [])
 
   const handleCancel = useCallback(async (id: string) => {
     await window.api?.cancelDownload(id)
@@ -830,7 +1014,7 @@ export default function App() {
   const handleSaveSettings = async (s: AppSettings) => {
     setSettings(s)
     await saveState({ downloadPath: s.downloadPath, concurrentDownloads: s.concurrentDownloads })
-    await window.api?.saveSettings(s)
+    await window.api?.saveSettings(s)  // saves cookiesFromBrowser too
   }
 
   const handlePickFolder = async () => {
@@ -867,9 +1051,28 @@ export default function App() {
               {(videoInfo || fetching) && (
                 <>
                   <VideoInfoCard info={videoInfo} loading={fetching} t={t}/>
+
+                  {/* Playlist banner */}
+                  {(playlistLoading || playlist) && (
+                    <div className="playlist-banner">
+                      <div className="playlist-banner-left">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                          <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                        </svg>
+                        {playlistLoading
+                          ? <span className="playlist-loading-text">{t.playlist_loading}<span className="spin" style={{marginLeft:8}}/></span>
+                          : <span>{t.playlist_detected} · <b>{playlist?.length}</b> {t.playlist_count}</span>
+                        }
+                      </div>
+                    </div>
+                  )}
+
                   <FormatSelector
                     key="fmt-selector"
                     onDownload={handleDownload}
+                    onDownloadAll={handleDownloadAll}
+                    playlist={playlist}
                     disabled={!videoInfo || fetching}
                     t={t}
                     initType={initFmt.type}
@@ -888,7 +1091,7 @@ export default function App() {
                   </div>
                   <div className="queue-list">
                     {downloads.slice(0, 15).map(d => (
-                      <DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} t={t}/>
+                      <DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} t={t}/>
                     ))}
                   </div>
                 </div>
@@ -897,7 +1100,7 @@ export default function App() {
           )}
 
           {view === 'history' && <HistoryView downloads={downloads} t={t} onClear={async () => { await clearHistory(); setDownloads(p => p.filter(d => d.status === 'downloading' || d.status === 'pending')) }}/>}
-          {view === 'settings' && <SettingsView settings={settings} onSave={handleSaveSettings} onPickFolder={handlePickFolder} t={t} theme={theme} onThemeChange={handleThemeChange}/>}
+          {view === 'settings' && <SettingsView settings={settings} onSave={handleSaveSettings} onPickFolder={handlePickFolder} t={t} theme={theme} onThemeChange={handleThemeChange} highlightCookies={highlightCookies}/>}
         </main>
       </div>
     </div>
