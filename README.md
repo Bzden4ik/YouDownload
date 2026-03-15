@@ -6,7 +6,7 @@
 
 **Futuristic desktop downloader for YouTube & 1000+ sites**
 
-[![Release](https://img.shields.io/github/v/release/warfa/YouDownload?style=flat-square&color=4ADE80)](https://github.com/Bzden4ik/YouDownload/releases)
+[![Release](https://img.shields.io/github/v/release/warfa/YouDownload?style=flat-square&color=4ADE80)](https://github.com/Bzden4ik/YouDownload/releases/tag/1.0.0)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square)](https://github.com/warfa/YouDownload/releases)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
