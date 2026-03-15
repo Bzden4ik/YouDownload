@@ -130,25 +130,22 @@ function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: str
   const writable = existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null
   const activeCookies = explicit ?? writable
 
-  // android_vr — единственный клиент без PO Token и без n-challenge
-  // web падает из-за n-challenge (требует JS runtime), ios требует PO Token
-  // Куки передаём независимо — android_vr их принимает
-  const playerClient = 'android_vr'
+  const isTwitch = url?.includes('twitch.tv')
 
   const args: string[] = [
-    '--extractor-args', `youtube:player_client=${playerClient}`,
     '--retries', '5',
     '--fragment-retries', '5',
     '--skip-unavailable-fragments',
   ]
 
-  const nodePath = findNodePath()
-  if (nodePath) args.push('--js-runtimes', `node:${nodePath}`)
+  // YouTube-specific: android_vr и js-runtimes не нужны Twitch
+  if (!isTwitch) {
+    args.push('--extractor-args', 'youtube:player_client=android_vr')
+    const nodePath = findNodePath()
+    if (nodePath) args.push('--js-runtimes', `node:${nodePath}`)
+  }
 
-  // Передаём cookies.txt только если файл существует и не пустой
   if (activeCookies) { args.push('--cookies', activeCookies) }
-  // --cookies-from-browser намеренно не передаём — Edge/Chrome 127+ сломаны (App-Bound Encryption)
-  // Куки получаем через встроенное окно YouTube (extract-browser-cookies)
   return args
 }
 
@@ -284,6 +281,26 @@ ipcMain.handle('fetch-video-info', async (_e, url: string) => {
   } catch (e) { return { success: false, error: String(e) } }
 })
 
+// Fetch Twitch channel content (vods or clips)
+ipcMain.handle('fetch-twitch-channel', async (_e, channelName: string, type: 'vods' | 'clips') => {
+  const url = type === 'vods'
+    ? `https://www.twitch.tv/${channelName}/videos?filter=archives&sort=time`
+    : `https://www.twitch.tv/${channelName}/clips?filter=clips&range=all`
+  try {
+    const result = spawnSync(
+      getYtDlpPath(),
+      [url, '--flat-playlist', '--dump-json', '--yes-playlist', '--no-warnings'],
+      { encoding: 'utf8', timeout: 30000 }
+    )
+    const entries = (result.stdout || '').trim().split('\n').filter(Boolean).map(line => {
+      try { return JSON.parse(line) } catch { return null }
+    }).filter(Boolean)
+    return { success: true, entries }
+  } catch (e) {
+    return { success: false, error: String(e), entries: [] }
+  }
+})
+
 // Fetch playlist entries (titles + ids only, fast)
 ipcMain.handle('fetch-playlist-info', async (_e, url: string) => {
   if (!ytDlpWrap) return { success: false, error: 'yt-dlp not initialized' }
@@ -346,10 +363,18 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
 
 // Cancel download
 ipcMain.handle('cancel-download', (_e, id: string) => {
-  const dl = activeDownloads.get(id); if (!dl) return { success: false }
+  const dl = activeDownloads.get(id)
+  if (!dl) return { success: false }
   dl.cancelled = true
-  try { (dl.emitter as unknown as { kill: () => void }).kill() } catch {}
-  activeDownloads.delete(id); return { success: true }
+  const ytDlpProcess = (dl.emitter as unknown as { ytDlpProcess?: { pid?: number; kill: () => void } }).ytDlpProcess
+  if (ytDlpProcess?.pid) {
+    try {
+      // taskkill /T убивает дерево процессов (yt-dlp + ffmpeg)
+      execSync(`taskkill /pid ${ytDlpProcess.pid} /T /F`, { stdio: 'ignore' })
+    } catch { /* игнорируем если уже завершён */ }
+    try { ytDlpProcess.kill() } catch { /* обновляем статус объекта */ }
+  }
+  return { success: true }
 })
 
 ipcMain.handle('open-folder', (_e, path: string) => shell.openPath(path))

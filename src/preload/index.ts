@@ -29,6 +29,7 @@ const api = {
   extractBrowserCookies: () => ipcRenderer.invoke('extract-browser-cookies'),
   fetchVideoInfo: (url: string) => ipcRenderer.invoke('fetch-video-info', url),
   fetchPlaylistInfo: (url: string) => ipcRenderer.invoke('fetch-playlist-info', url),
+  fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips') => ipcRenderer.invoke('fetch-twitch-channel', channelName, type),
   startDownload:  (p: unknown) => ipcRenderer.invoke('start-download', p),
   cancelDownload: (id: string) => ipcRenderer.invoke('cancel-download', id),
   openFolder:     (path: string) => ipcRenderer.invoke('open-folder', path),

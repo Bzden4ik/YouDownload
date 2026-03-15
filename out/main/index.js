@@ -104,18 +104,19 @@ function getBaseArgs(cookiesFromBrowser, cookiesFile, url) {
   const explicit = cookiesFile && fs.existsSync(cookiesFile) ? cookiesFile : null;
   const writable = fs.existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null;
   const activeCookies = explicit ?? writable;
-  const playerClient = "android_vr";
+  const isTwitch = url?.includes("twitch.tv");
   const args = [
-    "--extractor-args",
-    `youtube:player_client=${playerClient}`,
     "--retries",
     "5",
     "--fragment-retries",
     "5",
     "--skip-unavailable-fragments"
   ];
-  const nodePath = findNodePath();
-  if (nodePath) args.push("--js-runtimes", `node:${nodePath}`);
+  if (!isTwitch) {
+    args.push("--extractor-args", "youtube:player_client=android_vr");
+    const nodePath = findNodePath();
+    if (nodePath) args.push("--js-runtimes", `node:${nodePath}`);
+  }
   if (activeCookies) {
     args.push("--cookies", activeCookies);
   }
@@ -263,6 +264,26 @@ electron.ipcMain.handle("fetch-video-info", async (_e, url) => {
     return { success: false, error: String(e) };
   }
 });
+electron.ipcMain.handle("fetch-twitch-channel", async (_e, channelName, type) => {
+  const url = type === "vods" ? `https://www.twitch.tv/${channelName}/videos?filter=archives&sort=time` : `https://www.twitch.tv/${channelName}/clips?filter=clips&range=all`;
+  try {
+    const result = child_process.spawnSync(
+      getYtDlpPath(),
+      [url, "--flat-playlist", "--dump-json", "--yes-playlist", "--no-warnings"],
+      { encoding: "utf8", timeout: 3e4 }
+    );
+    const entries = (result.stdout || "").trim().split("\n").filter(Boolean).map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+    return { success: true, entries };
+  } catch (e) {
+    return { success: false, error: String(e), entries: [] };
+  }
+});
 electron.ipcMain.handle("fetch-playlist-info", async (_e, url) => {
   if (!ytDlpWrap) return { success: false, error: "yt-dlp not initialized" };
   try {
@@ -336,11 +357,17 @@ electron.ipcMain.handle("cancel-download", (_e, id) => {
   const dl = activeDownloads.get(id);
   if (!dl) return { success: false };
   dl.cancelled = true;
-  try {
-    dl.emitter.kill();
-  } catch {
+  const ytDlpProcess = dl.emitter.ytDlpProcess;
+  if (ytDlpProcess?.pid) {
+    try {
+      child_process.execSync(`taskkill /pid ${ytDlpProcess.pid} /T /F`, { stdio: "ignore" });
+    } catch {
+    }
+    try {
+      ytDlpProcess.kill();
+    } catch {
+    }
   }
-  activeDownloads.delete(id);
   return { success: true };
 });
 electron.ipcMain.handle("open-folder", (_e, path2) => electron.shell.openPath(path2));

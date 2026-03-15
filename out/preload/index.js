@@ -25,6 +25,7 @@ const api = {
   extractBrowserCookies: () => electron.ipcRenderer.invoke("extract-browser-cookies"),
   fetchVideoInfo: (url) => electron.ipcRenderer.invoke("fetch-video-info", url),
   fetchPlaylistInfo: (url) => electron.ipcRenderer.invoke("fetch-playlist-info", url),
+  fetchTwitchChannel: (channelName, type) => electron.ipcRenderer.invoke("fetch-twitch-channel", channelName, type),
   startDownload: (p) => electron.ipcRenderer.invoke("start-download", p),
   cancelDownload: (id) => electron.ipcRenderer.invoke("cancel-download", id),
   openFolder: (path) => electron.ipcRenderer.invoke("open-folder", path),

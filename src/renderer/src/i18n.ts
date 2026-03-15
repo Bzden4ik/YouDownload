@@ -11,6 +11,15 @@ export const translations = {
     // URL section
     paste_url:     'PASTE URL',
     url_hint:      'YouTube · YouTube Music · Shorts · Playlists · 1000+ sites',
+    twitch_hint:   'Twitch VODs · Clips · Highlights · Live streams',
+    twitch_channel_vods:  'Past Broadcasts',
+    twitch_channel_clips: 'Clips',
+    twitch_loading: 'Loading...',
+    twitch_empty:   'Nothing found',
+    twitch_select:  'Select a video to download',
+    twitch_selected: 'Selected',
+    twitch_sel_clear: 'Clear',
+    twitch_sel_download: 'Download selected',
     btn_paste:     'Paste',
     btn_fetch:     'Fetch',
 
@@ -93,6 +102,15 @@ export const translations = {
     // URL section
     paste_url:     'ВСТАВИТЬ ССЫЛКУ',
     url_hint:      'YouTube · YouTube Music · Shorts · Плейлисты · 1000+ сайтов',
+    twitch_hint:   'Twitch VOD · Клипы · Хайлайты · Прямые эфиры',
+    twitch_channel_vods:  'Трансляции',
+    twitch_channel_clips: 'Клипы',
+    twitch_loading: 'Загружаю...',
+    twitch_empty:   'Ничего не найдено',
+    twitch_select:  'Выберите видео для скачивания',
+    twitch_selected: 'Выбрано',
+    twitch_sel_clear: 'Сбросить',
+    twitch_sel_download: 'Скачать выбранное',
     btn_paste:     'Вставить',
     btn_fetch:     'Найти',
 

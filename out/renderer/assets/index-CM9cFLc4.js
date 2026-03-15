@@ -6976,6 +6976,15 @@ const translations = {
     // URL section
     paste_url: "PASTE URL",
     url_hint: "YouTube · YouTube Music · Shorts · Playlists · 1000+ sites",
+    twitch_hint: "Twitch VODs · Clips · Highlights · Live streams",
+    twitch_channel_vods: "Past Broadcasts",
+    twitch_channel_clips: "Clips",
+    twitch_loading: "Loading...",
+    twitch_empty: "Nothing found",
+    twitch_select: "Select a video to download",
+    twitch_selected: "Selected",
+    twitch_sel_clear: "Clear",
+    twitch_sel_download: "Download selected",
     btn_paste: "Paste",
     btn_fetch: "Fetch",
     // Format selector
@@ -7047,6 +7056,15 @@ const translations = {
     // URL section
     paste_url: "ВСТАВИТЬ ССЫЛКУ",
     url_hint: "YouTube · YouTube Music · Shorts · Плейлисты · 1000+ сайтов",
+    twitch_hint: "Twitch VOD · Клипы · Хайлайты · Прямые эфиры",
+    twitch_channel_vods: "Трансляции",
+    twitch_channel_clips: "Клипы",
+    twitch_loading: "Загружаю...",
+    twitch_empty: "Ничего не найдено",
+    twitch_select: "Выберите видео для скачивания",
+    twitch_selected: "Выбрано",
+    twitch_sel_clear: "Сбросить",
+    twitch_sel_download: "Скачать выбранное",
     btn_paste: "Вставить",
     btn_fetch: "Найти",
     // Format selector
@@ -7155,8 +7173,8 @@ async function clearHistory() {
 const genId = () => `dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const isPlaylistUrl = (url) => /[?&]list=/.test(url);
 function isCookieError(err) {
-  const lower = err.toLowerCase();
-  return lower.includes("cookie") || lower.includes("sign in") || lower.includes("login") || lower.includes("403") || lower.includes("age-restricted") || lower.includes("private") || lower.includes("members") || lower.includes("dpapi") || lower.includes("chrome cookie") || lower.includes("could not copy") || lower.includes("requires authentication") || lower.includes("confirm your age") || lower.includes("not available");
+  const l2 = err.toLowerCase();
+  return l2.includes("cookie") || l2.includes("sign in") || l2.includes("login") || l2.includes("403") || l2.includes("age-restricted") || l2.includes("private") || l2.includes("members") || l2.includes("dpapi") || l2.includes("chrome cookie") || l2.includes("could not copy") || l2.includes("requires authentication") || l2.includes("confirm your age") || l2.includes("not available");
 }
 function formatDur(s) {
   if (!s) return "--:--";
@@ -7169,6 +7187,28 @@ function formatViews(n2, t2) {
   if (n2 >= 1e3) return `${(n2 / 1e3).toFixed(0)}K ${t2.views}`;
   return `${n2} ${t2.views}`;
 }
+function detectPlatform(url) {
+  return url.includes("twitch.tv") ? "twitch" : "youtube";
+}
+function isTwitchChannelUrl(url) {
+  if (!url.includes("twitch.tv")) return false;
+  try {
+    const parts = new URL(url).pathname.split("/").filter(Boolean);
+    if (!parts.length || parts[0] === "videos") return false;
+    if (parts.length === 1) return true;
+    if (parts.length === 2 && (parts[1] === "videos" || parts[1] === "clips")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+function getTwitchChannelName(url) {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean)[0] ?? "";
+  } catch {
+    return "";
+  }
+}
 function getFormatArgs(type, quality) {
   if (type === "audio") {
     const map = {
@@ -7179,31 +7219,25 @@ function getFormatArgs(type, quality) {
     };
     return map[quality] ?? map.mp3_best;
   }
-  if (quality === "1080") return ["-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
-  if (quality === "720") return ["-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
-  if (quality === "480") return ["-f", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
-  if (quality === "360") return ["-f", "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
-  if (quality === "240") return ["-f", "bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=240]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
-  return ["-f", "bestvideo[height<=144][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=144]+bestaudio/bestvideo+bestaudio", "--merge-output-format", "mp4"];
+  const q2 = quality;
+  return ["-f", `bestvideo[height<=${q2}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${q2}]+bestaudio/bestvideo+bestaudio`, "--merge-output-format", "mp4"];
 }
 function getFormatLabel(type, quality) {
   if (type === "audio") {
-    const m22 = {
-      mp3_best: "MP3 · Best",
-      mp3_192: "MP3 · 192k",
-      mp3_128: "MP3 · 128k",
-      m4a: "M4A · Best"
-    };
+    const m22 = { mp3_best: "MP3 · Best", mp3_192: "MP3 · 192k", mp3_128: "MP3 · 128k", m4a: "M4A · Best" };
     return m22[quality] ?? "Audio";
   }
-  const m2 = {
-    "1080": "1080p · FHD",
-    "720": "720p · HD",
-    "480": "480p · SD",
-    "360": "360p",
-    "240": "240p",
-    "144": "144p"
-  };
+  const m2 = { "1080": "1080p · FHD", "720": "720p · HD", "480": "480p · SD", "360": "360p", "240": "240p", "144": "144p" };
+  return m2[quality] ?? quality;
+}
+function getTwitchFormatArgs(type, quality) {
+  if (type === "audio") return ["-f", "audio_only/bestaudio", "-x", "--audio-format", "mp3", "--audio-quality", "0"];
+  const map = { source: "best", "1080p60": "1080p60/1080p/best", "720p60": "720p60/720p/best", "480p": "480p/best", "360p": "360p/best", "160p": "160p/best" };
+  return ["-f", map[quality]];
+}
+function getTwitchFormatLabel(type, quality) {
+  if (type === "audio") return "MP3 · Best";
+  const m2 = { source: "Source", "1080p60": "1080p60", "720p60": "720p60", "480p": "480p", "360p": "360p", "160p": "160p" };
   return m2[quality] ?? quality;
 }
 function StarLogo({ size = 32, cls = "" }) {
@@ -7231,31 +7265,19 @@ function TitleBar() {
 }
 function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
   const t2 = translations[lang];
-  const NAV_ITEMS = [
-    {
-      id: "download",
-      label: t2.nav_download,
-      icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 16l-4-4h2.5V4h3v8H16l-4 4z" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 18H4" })
-      ] })
-    },
-    {
-      id: "history",
-      label: t2.nav_history,
-      icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "9" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "12 7 12 12 15 15" })
-      ] })
-    },
-    {
-      id: "settings",
-      label: t2.nav_settings,
-      icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" })
-      ] })
-    }
+  const NAV = [
+    { id: "download", label: t2.nav_download, icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 16l-4-4h2.5V4h3v8H16l-4 4z" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 18H4" })
+    ] }) },
+    { id: "history", label: t2.nav_history, icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "9" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "12 7 12 12 15 15" })
+    ] }) },
+    { id: "settings", label: t2.nav_settings, icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" })
+    ] }) }
   ];
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "sidebar", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-logo", children: [
@@ -7266,14 +7288,14 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-divider" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "sb-nav", children: NAV_ITEMS.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `sb-item ${view === item.id ? "sb-item-active" : ""}`, onClick: () => onChange(item.id), children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "sb-nav", children: NAV.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `sb-item ${view === item.id ? "sb-item-active" : ""}`, onClick: () => onChange(item.id), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-indicator" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-icon", children: item.icon }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-label", children: item.label }),
       item.id === "download" && activeCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-badge", children: activeCount })
     ] }, item.id)) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-footer", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "lang-toggle", onClick: onLangToggle, title: "Switch language", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "lang-toggle", onClick: onLangToggle, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `lang-opt ${lang === "en" ? "lang-opt-on" : ""}`, children: "EN" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "lang-sep" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `lang-opt ${lang === "ru" ? "lang-opt-on" : ""}`, children: "RU" })
@@ -7286,25 +7308,37 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
     ] })
   ] });
 }
-function UrlInput({ onFetch, loading, t: t2 }) {
+function UrlInput({ onFetch, loading, t: t2, platform, onPlatformChange }) {
   const [url, setUrl] = reactExports.useState("");
-  const inputRef = reactExports.useRef(null);
   const submit = () => {
     if (url.trim() && !loading) onFetch(url.trim());
   };
+  const handleChange = (val) => {
+    setUrl(val);
+    const d = detectPlatform(val);
+    if (d !== platform) onPlatformChange(d);
+  };
   const pasteFromClipboard = async () => {
     try {
-      const t22 = await navigator.clipboard.readText();
-      if (t22.includes("youtube.com") || t22.includes("youtu.be") || t22.includes("music.youtube")) {
-        setUrl(t22);
-        setTimeout(() => onFetch(t22.trim()), 80);
-      } else {
-        setUrl(t22);
-      }
+      const text = await navigator.clipboard.readText();
+      handleChange(text);
+      if (text.includes("youtube.com") || text.includes("youtu.be") || text.includes("music.youtube") || text.includes("twitch.tv"))
+        setTimeout(() => onFetch(text.trim()), 80);
     } catch {
     }
   };
+  const placeholder = platform === "twitch" ? "https://twitch.tv/channelname  or  twitch.tv/videos/..." : "https://youtube.com/watch?v=...";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "url-section", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "platform-switcher", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `platform-btn ${platform === "youtube" ? "platform-btn-on" : ""}`, onClick: () => onPlatformChange("youtube"), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.7 15.5V8.5l6.3 3.5-6.3 3.5z" }) }),
+        "YouTube"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `platform-btn ${platform === "twitch" ? "platform-btn-on platform-btn-twitch" : ""}`, onClick: () => onPlatformChange("twitch"), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
+        "Twitch"
+      ] })
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "section-eyebrow", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "eyebrow-line" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.paste_url }),
@@ -7315,21 +7349,8 @@ function UrlInput({ onFetch, loading, t: t2 }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" })
       ] }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "input",
-        {
-          ref: inputRef,
-          type: "text",
-          value: url,
-          onChange: (e) => setUrl(e.target.value),
-          onKeyDown: (e) => e.key === "Enter" && submit(),
-          className: "url-input",
-          placeholder: "https://youtube.com/watch?v=...",
-          spellCheck: false,
-          autoComplete: "off"
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn-paste", onClick: pasteFromClipboard, title: "Paste from clipboard", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", value: url, onChange: (e) => handleChange(e.target.value), onKeyDown: (e) => e.key === "Enter" && submit(), className: "url-input", placeholder, spellCheck: false, autoComplete: "off" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "btn-paste", onClick: pasteFromClipboard, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.5", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "9", y: "9", width: "13", height: "13", rx: "2" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" })
@@ -7344,7 +7365,7 @@ function UrlInput({ onFetch, loading, t: t2 }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.btn_fetch })
       ] }) })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "url-hint", children: t2.url_hint })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "url-hint", children: platform === "twitch" ? t2.twitch_hint : t2.url_hint })
   ] });
 }
 function VideoInfoCard({ info, loading, t: t2 }) {
@@ -7377,10 +7398,12 @@ function VideoInfoCard({ info, loading, t: t2 }) {
     ] })
   ] });
 }
-function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, initVq, initAq, onFormatChange, playlist }) {
+function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, initVq, initAq, onFormatChange, playlist, platform }) {
   const [ftype, setFtype] = reactExports.useState(initType);
   const [vq, setVq] = reactExports.useState(initVq);
   const [aq, setAq] = reactExports.useState(initAq);
+  const [tq, setTq] = reactExports.useState("source");
+  const isTwitch = platform === "twitch";
   const setFtypeAndSave = (v2) => {
     setFtype(v2);
     onFormatChange(v2, vq, aq);
@@ -7393,21 +7416,11 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
     setAq(v2);
     onFormatChange(ftype, vq, v2);
   };
-  const VQ = [
-    { v: "1080", label: "1080p", badge: "FHD" },
-    { v: "720", label: "720p", badge: "HD" },
-    { v: "480", label: "480p", badge: "SD" },
-    { v: "360", label: "360p", badge: "" },
-    { v: "240", label: "240p", badge: "" },
-    { v: "144", label: "144p", badge: "" }
-  ];
-  const AQ = [
-    { v: "mp3_best", fmt: "MP3", sub: "Best" },
-    { v: "mp3_192", fmt: "MP3", sub: "192 kbps" },
-    { v: "mp3_128", fmt: "MP3", sub: "128 kbps" },
-    { v: "m4a", fmt: "M4A", sub: "Best" }
-  ];
-  const go = () => onDownload(ftype, ftype === "video" ? vq : aq);
+  const VQ = [{ v: "1080", l: "1080p", b: "FHD" }, { v: "720", l: "720p", b: "HD" }, { v: "480", l: "480p", b: "SD" }, { v: "360", l: "360p", b: "" }, { v: "240", l: "240p", b: "" }, { v: "144", l: "144p", b: "" }];
+  const TQ = [{ v: "source", l: "Source", b: "MAX" }, { v: "1080p60", l: "1080p", b: "60fps" }, { v: "720p60", l: "720p", b: "60fps" }, { v: "480p", l: "480p", b: "" }, { v: "360p", l: "360p", b: "" }, { v: "160p", l: "160p", b: "" }];
+  const AQ = [{ v: "mp3_best", f: "MP3", s: "Best" }, { v: "mp3_192", f: "MP3", s: "192 kbps" }, { v: "mp3_128", f: "MP3", s: "128 kbps" }, { v: "m4a", f: "M4A", s: "Best" }];
+  const go = () => onDownload(ftype, isTwitch ? ftype === "video" ? tq : "mp3_best" : ftype === "video" ? vq : aq);
+  const ql2 = isTwitch ? ftype === "video" ? TQ.find((q2) => q2.v === tq)?.l : "MP3" : ftype === "video" ? VQ.find((q2) => q2.v === vq)?.l : AQ.find((q2) => q2.v === aq)?.s;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fmt-section", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fmt-tabs", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `fmt-tab ${ftype === "video" ? "fmt-tab-on" : ""}`, onClick: () => setFtypeAndSave("video"), children: [
@@ -7426,12 +7439,15 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
         t2.fmt_audio
       ] })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "quality-grid", children: ftype === "video" ? VQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${vq === q2.v ? "q-btn-on" : ""}`, onClick: () => setVqAndSave(q2.v), children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.label }),
-      q2.badge && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-badge", children: q2.badge })
-    ] }, q2.v)) : AQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${aq === q2.v ? "q-btn-on" : ""}`, onClick: () => setAqAndSave(q2.v), children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.fmt }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-sub", children: q2.sub })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "quality-grid", children: ftype === "audio" ? AQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${aq === q2.v ? "q-btn-on" : ""}`, onClick: () => setAqAndSave(q2.v), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.f }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-sub", children: q2.s })
+    ] }, q2.v)) : isTwitch ? TQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${tq === q2.v ? "q-btn-on" : ""}`, onClick: () => setTq(q2.v), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.l }),
+      q2.b && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-badge", children: q2.b })
+    ] }, q2.v)) : VQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${vq === q2.v ? "q-btn-on" : ""}`, onClick: () => setVqAndSave(q2.v), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.l }),
+      q2.b && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-badge", children: q2.b })
     ] }, q2.v)) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-now-btn", onClick: go, disabled, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
@@ -7439,7 +7455,7 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
         /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 18H4" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: ftype === "audio" ? t2.btn_download_audio : t2.btn_download_video }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-now-q", children: ftype === "video" ? VQ.find((q2) => q2.v === vq)?.label : AQ.find((q2) => q2.v === aq)?.sub })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-now-q", children: ql2 })
     ] }),
     playlist && playlist.length > 1 && onDownloadAll && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-all-btn", onClick: () => onDownloadAll(ftype, ftype === "video" ? vq : aq), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", children: [
@@ -7459,22 +7475,112 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
     ] })
   ] });
 }
-const STATUS_COLOR = {
-  pending: "#60A5FA",
-  downloading: "#4ADE80",
-  processing: "#FACC15",
-  complete: "#4ADE80",
-  error: "#EF4444",
-  cancelled: "#475569"
-};
-const STATUS_LABEL = (t2) => ({
-  pending: t2.st_pending,
-  downloading: t2.st_downloading,
-  processing: t2.st_processing,
-  complete: t2.st_complete,
-  error: t2.st_error,
-  cancelled: t2.st_cancelled
-});
+function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti }) {
+  const [tab, setTab] = reactExports.useState("vods");
+  const [allEntries, setAllEntries] = reactExports.useState({ vods: [], clips: [] });
+  const [loading, setLoading] = reactExports.useState(false);
+  const loadedRef = reactExports.useRef({});
+  const [selected, setSelected] = reactExports.useState({});
+  const load = async (type) => {
+    if (loadedRef.current[type]) return;
+    loadedRef.current[type] = true;
+    setLoading(true);
+    const r2 = await window.api?.fetchTwitchChannel(channelName, type);
+    setAllEntries((p2) => ({ ...p2, [type]: r2?.success && r2.entries ? r2.entries : [] }));
+    setLoading(false);
+  };
+  reactExports.useEffect(() => {
+    loadedRef.current = {};
+    setAllEntries({ vods: [], clips: [] });
+    setTab("vods");
+    load("vods");
+  }, [channelName]);
+  const switchTab = (type) => {
+    setTab(type);
+    load(type);
+  };
+  const toggleSelect = (entry, url) => {
+    setSelected((p2) => {
+      if (p2[entry.id]) {
+        const n2 = { ...p2 };
+        delete n2[entry.id];
+        return n2;
+      }
+      return { ...p2, [entry.id]: { entry, url, tab } };
+    });
+  };
+  const selectedList = Object.values(selected);
+  const entries = allEntries[tab];
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-browser", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-browser-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-channel-name", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "#9146FF", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: channelName })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-tabs", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `twitch-tab ${tab === "vods" ? "twitch-tab-on" : ""}`, onClick: () => switchTab("vods"), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "2", y: "3", width: "20", height: "14", rx: "2" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "21", x2: "16", y2: "21" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "17", x2: "12", y2: "21" })
+          ] }),
+          t2.twitch_channel_vods,
+          Object.values(selected).filter((s) => s.tab === "vods").length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-tab-badge", children: Object.values(selected).filter((s) => s.tab === "vods").length })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `twitch-tab ${tab === "clips" ? "twitch-tab-on" : ""}`, onClick: () => switchTab("clips"), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "20", y1: "14", x2: "4", y2: "14" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "4", y1: "10", x2: "20", y2: "10" })
+          ] }),
+          t2.twitch_channel_clips,
+          Object.values(selected).filter((s) => s.tab === "clips").length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-tab-badge", children: Object.values(selected).filter((s) => s.tab === "clips").length })
+        ] })
+      ] })
+    ] }),
+    selectedList.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-selection-bar", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "twitch-sel-count", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
+        t2.twitch_selected,
+        ": ",
+        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: selectedList.length })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-sel-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "twitch-sel-clear", onClick: () => setSelected({}), children: t2.twitch_sel_clear }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "twitch-sel-download", onClick: () => onDownloadMulti(selectedList), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 16l-4-4h2.5V4h3v8H16l-4 4z" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 18H4" })
+          ] }),
+          t2.twitch_sel_download
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-list", children: [
+      loading && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-loading", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.twitch_loading })
+      ] }),
+      !loading && entries.length === 0 && loadedRef.current[tab] && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "twitch-empty", children: t2.twitch_empty }),
+      entries.map((entry) => {
+        const videoUrl = entry.url || entry.webpage_url || `https://www.twitch.tv/videos/${entry.id}`;
+        const isSelected = !!selected[entry.id];
+        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `twitch-entry ${isSelected ? "twitch-entry-selected" : ""}`, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `twitch-checkbox ${isSelected ? "twitch-checkbox-on" : ""}`, onClick: () => toggleSelect(entry, videoUrl), title: "Выбрать", children: isSelected && /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "10", height: "10", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "3", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "twitch-entry-inner", onClick: () => onSelect(entry, videoUrl), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-entry-thumb", children: [
+              entry.thumbnail ? /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: entry.thumbnail, alt: "" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "twitch-entry-thumb-ph", children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "5 3 19 12 5 21 5 3" }) }) }),
+              entry.duration && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-dur", children: formatDur(entry.duration) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "twitch-entry-meta", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-title", children: entry.title }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className: "twitch-entry-arrow", width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "9 18 15 12 9 6" }) })
+          ] })
+        ] }, entry.id);
+      })
+    ] })
+  ] });
+}
+const STATUS_COLOR = { pending: "#60A5FA", downloading: "#4ADE80", processing: "#FACC15", complete: "#4ADE80", error: "#EF4444", cancelled: "#475569" };
+const STATUS_LABEL = (t2) => ({ pending: t2.st_pending, downloading: t2.st_downloading, processing: t2.st_processing, complete: t2.st_complete, error: t2.st_error, cancelled: t2.st_cancelled });
 function DownloadCard({ item, onCancel, onOpen, onCookieHint, t: t2 }) {
   const c = STATUS_COLOR[item.status];
   const labels = STATUS_LABEL(t2);
@@ -7542,7 +7648,7 @@ function HistoryView({ downloads, t: t2, onClear }) {
         " ",
         t2.hist_items
       ] }),
-      done.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "hist-clear", onClick: onClear, title: t2.hist_clear, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "hist-clear", onClick: onClear, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "3 6 5 6 21 6" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19 6l-1 14H6L5 6" }),
@@ -7625,9 +7731,7 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
     });
   }, []);
   reactExports.useEffect(() => {
-    if (highlightCookies && cookiesRef.current) {
-      cookiesRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    if (highlightCookies && cookiesRef.current) cookiesRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [highlightCookies]);
   reactExports.useEffect(() => setLocal(settings), [settings]);
   const handleUpdate = async () => {
@@ -7666,59 +7770,34 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_concurrent }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-radios", children: [1, 2, 3, 5].map((n2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          className: `set-radio ${local.concurrentDownloads === n2 ? "set-radio-on" : ""}`,
-          onClick: () => setLocal((p2) => ({ ...p2, concurrentDownloads: n2 })),
-          children: n2
-        },
-        n2
-      )) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-radios", children: [1, 2, 3, 5].map((n2) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `set-radio ${local.concurrentDownloads === n2 ? "set-radio-on" : ""}`, onClick: () => setLocal((p2) => ({ ...p2, concurrentDownloads: n2 })), children: n2 }, n2)) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_cookies }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-hint", children: t2.set_cookies_hint }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-radios", style: { flexWrap: "wrap", gap: "6px" }, children: ["none", "edge", "firefox", "brave"].map((b) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          className: `set-radio ${local.cookiesFromBrowser === b ? "set-radio-on" : ""}`,
-          style: { minWidth: "64px", textTransform: "capitalize" },
-          onClick: () => setLocal((p2) => ({ ...p2, cookiesFromBrowser: b })),
-          children: b === "none" ? "Off" : b
-        },
-        b
-      )) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-radios", style: { flexWrap: "wrap", gap: "6px" }, children: ["none", "edge", "firefox", "brave"].map((b) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `set-radio ${local.cookiesFromBrowser === b ? "set-radio-on" : ""}`, style: { minWidth: "64px", textTransform: "capitalize" }, onClick: () => setLocal((p2) => ({ ...p2, cookiesFromBrowser: b })), children: b === "none" ? "Off" : b }, b)) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: cookiesRef, className: `set-group ${highlightCookies ? "set-group-highlight" : ""}`, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_extract_cookies }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-hint", children: t2.set_extract_cookies_hint }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          className: `set-extract-btn ${extractState === "ok" ? "set-extract-ok" : extractState === "fail" ? "set-extract-fail" : ""}`,
-          onClick: handleExtract,
-          disabled: extractState === "busy",
-          children: extractState === "busy" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
-            t2.set_extracting
-          ] }) : extractState === "ok" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
-            t2.set_extract_ok
-          ] }) : extractState === "fail" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
-            ] }),
-            t2.set_extract_fail
-          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.7", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
-            t2.set_extract_cookies,
-            ytLoggedIn && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-extract-browser", children: "✓ signed in" })
-          ] })
-        }
-      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `set-extract-btn ${extractState === "ok" ? "set-extract-ok" : extractState === "fail" ? "set-extract-fail" : ""}`, onClick: handleExtract, disabled: extractState === "busy", children: extractState === "busy" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
+        t2.set_extracting
+      ] }) : extractState === "ok" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
+        t2.set_extract_ok
+      ] }) : extractState === "fail" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
+        ] }),
+        t2.set_extract_fail
+      ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.7", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
+        t2.set_extract_cookies,
+        ytLoggedIn && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-extract-browser", children: "✓ signed in" })
+      ] }) }),
       extractState === "fail" && extractError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-extract-error", children: extractError })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "set-save", onClick: () => onSave(local), children: [
@@ -7772,7 +7851,7 @@ function App() {
   const [lang, setLang] = reactExports.useState("en");
   const [theme, setTheme] = reactExports.useState("fleet");
   const [initFmt, setInitFmt] = reactExports.useState({ type: "video", vq: "1080", aq: "mp3_best" });
-  const [settings, setSettings] = reactExports.useState({ downloadPath: "", defaultFormat: "mp4", defaultQuality: "1080", concurrentDownloads: 3, cookiesFromBrowser: "none" });
+  const [settings, setSettings] = reactExports.useState({ downloadPath: "", defaultFormat: "mp4", defaultQuality: "1080", concurrentDownloads: 3, cookiesFromBrowser: "none", cookiesFile: "" });
   const [downloads, setDownloads] = reactExports.useState([]);
   const [videoInfo, setVideoInfo] = reactExports.useState(null);
   const [fetching, setFetching] = reactExports.useState(false);
@@ -7781,16 +7860,17 @@ function App() {
   const [showSetup, setShowSetup] = reactExports.useState(false);
   const [setupBusy, setSetupBusy] = reactExports.useState(false);
   const [setupError, setSetupError] = reactExports.useState("");
-  const [appLoaded, setAppLoaded] = reactExports.useState(false);
   const [highlightCookies, setHighlightCookies] = reactExports.useState(false);
   const [playlist, setPlaylist] = reactExports.useState(null);
   const [playlistLoading, setPlaylistLoading] = reactExports.useState(false);
+  const [platform, setPlatform] = reactExports.useState("youtube");
+  const [twitchChannel, setTwitchChannel] = reactExports.useState(null);
   const urlRef = reactExports.useRef("");
   const t2 = translations[lang];
   const toggleLang = () => {
-    const next = lang === "en" ? "ru" : "en";
-    setLang(next);
-    saveState({ lang: next });
+    const n2 = lang === "en" ? "ru" : "en";
+    setLang(n2);
+    saveState({ lang: n2 });
   };
   const handleThemeChange = (th2) => {
     setTheme(th2);
@@ -7806,11 +7886,9 @@ function App() {
       document.documentElement.setAttribute("data-theme", s.theme === "apathy" ? "apathy" : "");
       setInitFmt({ type: s.formatType, vq: s.videoQuality, aq: s.audioQuality });
       const elSettings = await window.api.getSettings();
-      const resolvedPath = s.downloadPath || elSettings.downloadPath;
-      setSettings({ ...elSettings, downloadPath: resolvedPath, concurrentDownloads: s.concurrentDownloads || elSettings.concurrentDownloads });
+      setSettings({ ...elSettings, downloadPath: s.downloadPath || elSettings.downloadPath, concurrentDownloads: s.concurrentDownloads || elSettings.concurrentDownloads });
       const hist = await loadHistory();
       setDownloads(hist.map((h) => ({ ...h, progress: 100, speed: void 0, eta: void 0, error: void 0 })));
-      setAppLoaded(true);
       const { exists } = await window.api.checkYtDlp();
       if (exists) {
         setReady(true);
@@ -7821,25 +7899,19 @@ function App() {
   }, []);
   reactExports.useEffect(() => {
     if (!window.api) return;
-    const u1 = window.api.onDownloadProgress((d) => {
-      setDownloads((p2) => p2.map((x2) => x2.id === d.id ? { ...x2, progress: d.progress, speed: d.speed, eta: d.eta, status: "downloading" } : x2));
-    });
-    const u2 = window.api.onDownloadComplete((d) => {
-      setDownloads((p2) => {
-        const updated = p2.map((x2) => x2.id === d.id ? { ...x2, status: "complete", progress: 100 } : x2);
-        const item = updated.find((x2) => x2.id === d.id);
-        if (item) appendHistory({ id: item.id, url: item.url, title: item.title, thumbnail: item.thumbnail, formatLabel: item.formatLabel, status: "complete", createdAt: item.createdAt });
-        return updated;
-      });
-    });
-    const u3 = window.api.onDownloadError((d) => {
-      setDownloads((p2) => {
-        const updated = p2.map((x2) => x2.id === d.id ? { ...x2, status: "error", error: d.error } : x2);
-        const item = updated.find((x2) => x2.id === d.id);
-        if (item) appendHistory({ id: item.id, url: item.url, title: item.title, thumbnail: item.thumbnail, formatLabel: item.formatLabel, status: "error", createdAt: item.createdAt });
-        return updated;
-      });
-    });
+    const u1 = window.api.onDownloadProgress((d) => setDownloads((p2) => p2.map((x2) => x2.id === d.id ? { ...x2, progress: d.progress, speed: d.speed, eta: d.eta, status: "downloading" } : x2)));
+    const u2 = window.api.onDownloadComplete((d) => setDownloads((p2) => {
+      const updated = p2.map((x2) => x2.id === d.id ? { ...x2, status: "complete", progress: 100 } : x2);
+      const item = updated.find((x2) => x2.id === d.id);
+      if (item) appendHistory({ id: item.id, url: item.url, title: item.title, thumbnail: item.thumbnail, formatLabel: item.formatLabel, status: "complete", createdAt: item.createdAt });
+      return updated;
+    }));
+    const u3 = window.api.onDownloadError((d) => setDownloads((p2) => {
+      const updated = p2.map((x2) => x2.id === d.id ? { ...x2, status: "error", error: d.error } : x2);
+      const item = updated.find((x2) => x2.id === d.id);
+      if (item) appendHistory({ id: item.id, url: item.url, title: item.title, thumbnail: item.thumbnail, formatLabel: item.formatLabel, status: "error", createdAt: item.createdAt });
+      return updated;
+    }));
     return () => {
       u1();
       u2();
@@ -7854,9 +7926,7 @@ function App() {
       if (r2.success) {
         setReady(true);
         setShowSetup(false);
-      } else {
-        setSetupError(r2.error || "Download failed. Check your internet connection.");
-      }
+      } else setSetupError(r2.error || "Download failed. Check your internet connection.");
     } catch (err) {
       setSetupError(String(err));
     } finally {
@@ -7869,12 +7939,19 @@ function App() {
     setFetchErr("");
     setVideoInfo(null);
     setPlaylist(null);
+    setTwitchChannel(null);
     urlRef.current = url;
+    setPlatform(detectPlatform(url));
+    if (isTwitchChannelUrl(url)) {
+      setFetching(false);
+      setTwitchChannel(getTwitchChannelName(url));
+      return;
+    }
     const r2 = await window.api.fetchVideoInfo(url);
     setFetching(false);
     if (r2.success && r2.data) {
       setVideoInfo(r2.data);
-      if (isPlaylistUrl(url)) {
+      if (isPlaylistUrl(url) && !url.includes("twitch.tv")) {
         setPlaylistLoading(true);
         window.api.fetchPlaylistInfo(url).then((pr) => {
           if (pr.success && pr.entries && pr.entries.length > 1) setPlaylist(pr.entries);
@@ -7888,50 +7965,44 @@ function App() {
   const handleDownload = reactExports.useCallback(async (type, quality) => {
     if (!videoInfo || !window.api) return;
     const id2 = genId();
-    const formatArgs = getFormatArgs(type, quality);
-    const formatLabel = getFormatLabel(type, quality);
-    setDownloads((p2) => [{
-      id: id2,
-      url: urlRef.current,
-      title: videoInfo.title,
-      thumbnail: videoInfo.thumbnail,
-      formatLabel,
-      status: "pending",
-      progress: 0,
-      createdAt: Date.now()
-    }, ...p2]);
+    const isTwitch = platform === "twitch";
+    const formatArgs = isTwitch ? getTwitchFormatArgs(type, quality) : getFormatArgs(type, quality);
+    const formatLabel = isTwitch ? getTwitchFormatLabel(type, quality) : getFormatLabel(type, quality);
+    setDownloads((p2) => [{ id: id2, url: urlRef.current, title: videoInfo.title, thumbnail: videoInfo.thumbnail, formatLabel, status: "pending", progress: 0, createdAt: Date.now() }, ...p2]);
     let downloadUrl = urlRef.current;
-    if (downloadUrl.includes("music.youtube.com") && type === "video") {
-      downloadUrl = downloadUrl.replace("music.youtube.com", "www.youtube.com");
-    }
+    if (!isTwitch && downloadUrl.includes("music.youtube.com") && type === "video") downloadUrl = downloadUrl.replace("music.youtube.com", "www.youtube.com");
     const r2 = await window.api.startDownload({ id: id2, url: downloadUrl, formatArgs, downloadPath: settings.downloadPath });
-    if (!r2.success) {
-      setDownloads((p2) => p2.map((x2) => x2.id === id2 ? { ...x2, status: "error", error: r2.error } : x2));
-    }
-  }, [videoInfo, settings.downloadPath]);
+    if (!r2.success) setDownloads((p2) => p2.map((x2) => x2.id === id2 ? { ...x2, status: "error", error: r2.error } : x2));
+  }, [videoInfo, settings.downloadPath, platform]);
   const handleDownloadAll = reactExports.useCallback(async (type, quality) => {
     if (!playlist || !window.api) return;
     const formatArgs = getFormatArgs(type, quality);
     const formatLabel = getFormatLabel(type, quality);
     for (const entry of playlist) {
       const id2 = genId();
-      const isMusicPlaylist = urlRef.current.includes("music.youtube");
-      const base = isMusicPlaylist ? "https://music.youtube.com" : "https://www.youtube.com";
+      const base = urlRef.current.includes("music.youtube") ? "https://music.youtube.com" : "https://www.youtube.com";
       const rawUrl = entry.url || entry.webpage_url || "";
       const videoUrl = rawUrl.startsWith("http") ? rawUrl : `${base}/watch?v=${entry.id}`;
-      setDownloads((p2) => [{
-        id: id2,
-        url: videoUrl,
-        title: entry.title,
-        thumbnail: entry.thumbnail,
-        formatLabel,
-        status: "pending",
-        progress: 0,
-        createdAt: Date.now()
-      }, ...p2]);
+      setDownloads((p2) => [{ id: id2, url: videoUrl, title: entry.title, thumbnail: entry.thumbnail, formatLabel, status: "pending", progress: 0, createdAt: Date.now() }, ...p2]);
       window.api.startDownload({ id: id2, url: videoUrl, formatArgs, downloadPath: settings.downloadPath });
     }
   }, [playlist, settings.downloadPath]);
+  const handleTwitchSelect = reactExports.useCallback((entry, url) => {
+    setTwitchChannel(null);
+    urlRef.current = url;
+    setVideoInfo({ id: entry.id, title: entry.title, thumbnail: entry.thumbnail, duration: entry.duration, webpage_url: url });
+  }, []);
+  const handleTwitchMulti = reactExports.useCallback((items) => {
+    if (!window.api) return;
+    const formatArgs = getTwitchFormatArgs("video", "source");
+    const formatLabel = "Source · Twitch";
+    for (const { entry, url } of items) {
+      const id2 = genId();
+      setDownloads((p2) => [{ id: id2, url, title: entry.title, thumbnail: entry.thumbnail, formatLabel, status: "pending", progress: 0, createdAt: Date.now() }, ...p2]);
+      window.api.startDownload({ id: id2, url, formatArgs, downloadPath: settings.downloadPath });
+    }
+    setTwitchChannel(null);
+  }, [settings.downloadPath]);
   const handleCookieHint = reactExports.useCallback(() => {
     setView("settings");
     setHighlightCookies(true);
@@ -7946,7 +8017,7 @@ function App() {
       return updated;
     });
   }, []);
-  const handleOpen = reactExports.useCallback(async (id2) => {
+  const handleOpen = reactExports.useCallback(async () => {
     await window.api?.openFolder(settings.downloadPath);
   }, [settings.downloadPath]);
   const handleSaveSettings = async (s) => {
@@ -7970,7 +8041,7 @@ function App() {
       /* @__PURE__ */ jsxRuntimeExports.jsx(Sidebar, { view, onChange: setView, activeCount, lang, onLangToggle: toggleLang }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "main", children: [
         view === "download" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dl-view", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(UrlInput, { onFetch: handleFetch, loading: fetching, t: t2 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(UrlInput, { onFetch: handleFetch, loading: fetching, t: t2, platform, onPlatformChange: setPlatform }),
           fetchErr && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fetch-err", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
@@ -7979,6 +8050,7 @@ function App() {
             ] }),
             fetchErr
           ] }),
+          twitchChannel && /* @__PURE__ */ jsxRuntimeExports.jsx(TwitchChannelBrowser, { channelName: twitchChannel, t: t2, onSelect: handleTwitchSelect, onDownloadMulti: handleTwitchMulti }),
           (videoInfo || fetching) && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(VideoInfoCard, { info: videoInfo, loading: fetching, t: t2 }),
             (playlistLoading || playlist) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "playlist-banner", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "playlist-banner-left", children: [
@@ -8001,21 +8073,7 @@ function App() {
                 t2.playlist_count
               ] })
             ] }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              FormatSelector,
-              {
-                onDownload: handleDownload,
-                onDownloadAll: handleDownloadAll,
-                playlist,
-                disabled: !videoInfo || fetching,
-                t: t2,
-                initType: initFmt.type,
-                initVq: initFmt.vq,
-                initAq: initFmt.aq,
-                onFormatChange: (type, vq, aq) => saveState({ formatType: type, videoQuality: vq, audioQuality: aq })
-              },
-              "fmt-selector"
-            )
+            /* @__PURE__ */ jsxRuntimeExports.jsx(FormatSelector, { onDownload: handleDownload, onDownloadAll: handleDownloadAll, playlist, platform, disabled: !videoInfo || fetching, t: t2, initType: initFmt.type, initVq: initFmt.vq, initAq: initFmt.aq, onFormatChange: (type, vq, aq) => saveState({ formatType: type, videoQuality: vq, audioQuality: aq }) }, "fmt-selector")
           ] }),
           downloads.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "queue-section", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "queue-head", children: [
