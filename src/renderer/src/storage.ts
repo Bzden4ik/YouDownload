@@ -11,6 +11,7 @@ export interface PersistedState {
   audioQuality: 'mp3_best' | 'mp3_192' | 'mp3_128' | 'm4a'
   downloadPath: string
   concurrentDownloads: number
+  autoCheckUpdates: boolean
 }
 
 export interface PersistedDownload {
@@ -31,6 +32,7 @@ export const DEFAULTS: PersistedState = {
   audioQuality: 'mp3_best',
   downloadPath: '',
   concurrentDownloads: 3,
+  autoCheckUpdates: true,
 }
 
 /** Загрузить состояние из electron-store */

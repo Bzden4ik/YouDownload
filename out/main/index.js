@@ -104,22 +104,27 @@ function getBaseArgs(cookiesFromBrowser, cookiesFile, url) {
   const explicit = cookiesFile && fs.existsSync(cookiesFile) ? cookiesFile : null;
   const writable = fs.existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null;
   const activeCookies = explicit ?? writable;
-  const isTwitch = url?.includes("twitch.tv");
+  const isTwitch = url?.includes("twitch.tv") ?? false;
+  const isMusicYT = url?.includes("music.youtube.com") ?? false;
   const args = [
     "--retries",
-    "5",
+    "3",
     "--fragment-retries",
-    "5",
+    "3",
     "--skip-unavailable-fragments"
   ];
   if (!isTwitch) {
-    args.push("--extractor-args", "youtube:player_client=android_vr");
+    let playerClient;
+    if (isMusicYT) {
+      playerClient = activeCookies ? "android_music" : "ios";
+    } else {
+      playerClient = activeCookies ? "mweb" : "ios,mweb";
+    }
+    args.push("--extractor-args", `youtube:player_client=${playerClient}`);
     const nodePath = findNodePath();
     if (nodePath) args.push("--js-runtimes", `node:${nodePath}`);
   }
-  if (activeCookies) {
-    args.push("--cookies", activeCookies);
-  }
+  if (activeCookies) args.push("--cookies", activeCookies);
   return args;
 }
 function createWindow() {
@@ -371,11 +376,149 @@ electron.ipcMain.handle("cancel-download", (_e, id) => {
   return { success: true };
 });
 electron.ipcMain.handle("open-folder", (_e, path2) => electron.shell.openPath(path2));
+const CURRENT_VERSION = electron.app.getVersion();
+const GITHUB_RELEASES_API = "https://api.github.com/repos/Bzden4ik/YouDownload/releases/latest";
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    const req = electron.net.request({ url, method: "GET" });
+    req.setHeader("User-Agent", `YouDownload/${CURRENT_VERSION}`);
+    req.setHeader("Accept", "application/vnd.github+json");
+    let body = "";
+    req.on("response", (res) => {
+      res.on("data", (chunk) => {
+        body += chunk.toString();
+      });
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+function compareVersions(a, b) {
+  const normalize = (v) => v.replace(/^v/, "").split(".").map(Number);
+  const [aMaj, aMin, aPatch] = normalize(a);
+  const [bMaj, bMin, bPatch] = normalize(b);
+  if (aMaj !== bMaj) return bMaj - aMaj;
+  if (aMin !== bMin) return bMin - aMin;
+  return (bPatch ?? 0) - (aPatch ?? 0);
+}
+electron.ipcMain.handle("check-for-updates", async () => {
+  try {
+    const release = await fetchJson(GITHUB_RELEASES_API);
+    const latest = release.tag_name.replace(/^v/, "");
+    const current = CURRENT_VERSION.replace(/^v/, "");
+    const hasUpdate = compareVersions(current, latest) > 0;
+    if (!hasUpdate) return { hasUpdate: false, currentVersion: current, latestVersion: latest };
+    const asset = release.assets.find(
+      (a) => a.name.toLowerCase().endsWith(".exe") && a.name.toLowerCase().includes("setup")
+    );
+    return {
+      hasUpdate: true,
+      currentVersion: current,
+      latestVersion: latest,
+      releaseName: release.name,
+      releaseNotes: release.body,
+      downloadUrl: asset?.browser_download_url ?? release.html_url,
+      assetName: asset?.name ?? "",
+      assetSize: asset?.size ?? 0
+    };
+  } catch (err) {
+    return { hasUpdate: false, error: String(err) };
+  }
+});
+electron.ipcMain.handle("download-and-install-update", async (event, downloadUrl, assetName) => {
+  try {
+    const tmpDir = electron.app.getPath("temp");
+    const installerPath = path.join(tmpDir, assetName || "YouDownload-update.exe");
+    await new Promise((resolve, reject) => {
+      const req = electron.net.request({ url: downloadUrl, method: "GET" });
+      req.setHeader("User-Agent", `YouDownload/${CURRENT_VERSION}`);
+      let received = 0;
+      let total = 0;
+      const chunks = [];
+      req.on("response", (res) => {
+        total = parseInt(res.headers["content-length"] ?? "0", 10);
+        res.on("data", (chunk) => {
+          chunks.push(chunk);
+          received += chunk.length;
+          if (total > 0) {
+            const pct = Math.round(received / total * 100);
+            event.sender.send("update-download-progress", pct);
+          }
+        });
+        res.on("end", () => {
+          fs.writeFileSync(installerPath, Buffer.concat(chunks));
+          resolve();
+        });
+        res.on("error", reject);
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    event.sender.send("update-download-progress", 100);
+    child_process.spawn(installerPath, [], { detached: true, stdio: "ignore" }).unref();
+    setTimeout(() => electron.app.quit(), 1500);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+async function saveSessionCookies() {
+  const ses = electron.session.fromPartition("persist:yt-cookies");
+  const yt = await ses.cookies.get({ domain: "youtube.com" });
+  const goo = await ses.cookies.get({ domain: "google.com" });
+  const all = [...yt, ...goo];
+  if (all.length === 0) return;
+  const lines = ["# Netscape HTTP Cookie File", ""];
+  for (const c of all) {
+    const domain = c.domain ?? "";
+    const hostOnly = domain.startsWith(".") ? "TRUE" : "FALSE";
+    const secure = c.secure ? "TRUE" : "FALSE";
+    const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+    lines.push(`${domain}	${hostOnly}	${c.path ?? "/"}	${secure}	${expiry}	${c.name}	${c.value}`);
+  }
+  fs.writeFileSync(getWritableCookiesPath(), lines.join("\n"), "utf-8");
+}
+async function autoRefreshCookies() {
+  const ses = electron.session.fromPartition("persist:yt-cookies");
+  const existing = await ses.cookies.get({ domain: "youtube.com", name: "SID" });
+  if (existing.length === 0) return;
+  const win = new electron.BrowserWindow({
+    width: 1,
+    height: 1,
+    show: false,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+  });
+  try {
+    await Promise.race([
+      new Promise((resolve) => win.webContents.once("did-finish-load", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 12e3))
+    ]);
+    win.loadURL("https://www.youtube.com");
+    await Promise.race([
+      new Promise((resolve) => win.webContents.once("did-finish-load", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 12e3))
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await saveSessionCookies();
+  } catch {
+  } finally {
+    win.destroy();
+  }
+}
 electron.app.whenReady().then(async () => {
   createWindow();
   ensureCookiesWritable();
   initYtDlp().catch(() => {
   });
+  setTimeout(() => autoRefreshCookies().catch(() => {
+  }), 3e3);
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });

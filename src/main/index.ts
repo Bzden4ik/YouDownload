@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, session } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, chmodSync, copyFileSync, writeFileSync } from 'fs'
-import { execSync, spawnSync } from 'child_process'
+import { execSync, spawnSync, spawn } from 'child_process'
+import { net } from 'electron'
 import Store from 'electron-store'
 import YTDlpWrapLib from 'yt-dlp-wrap'
 
@@ -130,22 +131,33 @@ function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: str
   const writable = existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null
   const activeCookies = explicit ?? writable
 
-  const isTwitch = url?.includes('twitch.tv')
+  const isTwitch  = url?.includes('twitch.tv') ?? false
+  const isMusicYT = url?.includes('music.youtube.com') ?? false
 
   const args: string[] = [
-    '--retries', '5',
-    '--fragment-retries', '5',
+    '--retries', '3',
+    '--fragment-retries', '3',
     '--skip-unavailable-fragments',
   ]
 
-  // YouTube-specific: android_vr и js-runtimes не нужны Twitch
   if (!isTwitch) {
-    args.push('--extractor-args', 'youtube:player_client=android_vr')
+    // YouTube Music: mweb/web_music require GVS PO Token with cookies — use ios which doesn't
+    // Regular YouTube: mweb works with cookies, ios,mweb works without
+    let playerClient: string
+    if (isMusicYT) {
+      // ios doesn't support cookies → use android_music (supports cookies, no PO Token needed)
+      // without cookies ios works fine
+      playerClient = activeCookies ? 'android_music' : 'ios'
+    } else {
+      playerClient = activeCookies ? 'mweb' : 'ios,mweb'
+    }
+    args.push('--extractor-args', `youtube:player_client=${playerClient}`)
+
     const nodePath = findNodePath()
     if (nodePath) args.push('--js-runtimes', `node:${nodePath}`)
   }
 
-  if (activeCookies) { args.push('--cookies', activeCookies) }
+  if (activeCookies) args.push('--cookies', activeCookies)
   return args
 }
 
@@ -265,6 +277,19 @@ ipcMain.handle('extract-browser-cookies', async () => {
   }
 })
 
+/** Strip WARNING lines from yt-dlp output, keep only the key ERROR */
+function cleanYtDlpError(raw: string): string {
+  const lines = raw.split('\n')
+  // Prefer lines starting with ERROR:
+  const errors = lines.filter(l => l.trimStart().startsWith('ERROR:'))
+  if (errors.length > 0) {
+    return errors.map(l => l.replace(/^.*?ERROR:\s*/, '')).join(' | ')
+  }
+  // Fallback: remove WARNING lines and return the rest
+  const cleaned = lines.filter(l => !l.trimStart().startsWith('WARNING:')).join('\n').trim()
+  return cleaned || raw
+}
+
 // Fetch video info
 ipcMain.handle('fetch-video-info', async (_e, url: string) => {
   if (!ytDlpWrap) return { success: false, error: 'yt-dlp not initialized' }
@@ -379,11 +404,172 @@ ipcMain.handle('cancel-download', (_e, id: string) => {
 
 ipcMain.handle('open-folder', (_e, path: string) => shell.openPath(path))
 
+// ── Auto-updater ─────────────────────────────────────────────────────────────
+
+const CURRENT_VERSION = app.getVersion()  // from package.json
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/Bzden4ik/YouDownload/releases/latest'
+
+interface GitHubRelease {
+  tag_name: string
+  name: string
+  body: string
+  html_url: string
+  assets: { name: string; browser_download_url: string; size: number }[]
+}
+
+function fetchJson(url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url, method: 'GET' })
+    req.setHeader('User-Agent', `YouDownload/${CURRENT_VERSION}`)
+    req.setHeader('Accept', 'application/vnd.github+json')
+    let body = ''
+    req.on('response', res => {
+      res.on('data', chunk => { body += chunk.toString() })
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)) } catch (e) { reject(e) }
+      })
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+function compareVersions(a: string, b: string): number {
+  const normalize = (v: string) => v.replace(/^v/, '').split('.').map(Number)
+  const [aMaj, aMin, aPatch] = normalize(a)
+  const [bMaj, bMin, bPatch] = normalize(b)
+  if (aMaj !== bMaj) return bMaj - aMaj
+  if (aMin !== bMin) return bMin - aMin
+  return (bPatch ?? 0) - (aPatch ?? 0)
+}
+
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const release = await fetchJson(GITHUB_RELEASES_API) as GitHubRelease
+    const latest = release.tag_name.replace(/^v/, '')
+    const current = CURRENT_VERSION.replace(/^v/, '')
+    const hasUpdate = compareVersions(current, latest) > 0
+
+    if (!hasUpdate) return { hasUpdate: false, currentVersion: current, latestVersion: latest }
+
+    // Find Windows installer asset
+    const asset = release.assets.find(a =>
+      a.name.toLowerCase().endsWith('.exe') && a.name.toLowerCase().includes('setup')
+    )
+
+    return {
+      hasUpdate: true,
+      currentVersion: current,
+      latestVersion: latest,
+      releaseName: release.name,
+      releaseNotes: release.body,
+      downloadUrl: asset?.browser_download_url ?? release.html_url,
+      assetName: asset?.name ?? '',
+      assetSize: asset?.size ?? 0,
+    }
+  } catch (err) {
+    return { hasUpdate: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('download-and-install-update', async (event, downloadUrl: string, assetName: string) => {
+  try {
+    const tmpDir = app.getPath('temp')
+    const installerPath = join(tmpDir, assetName || 'YouDownload-update.exe')
+
+    // Download with progress
+    await new Promise<void>((resolve, reject) => {
+      const req = net.request({ url: downloadUrl, method: 'GET' })
+      req.setHeader('User-Agent', `YouDownload/${CURRENT_VERSION}`)
+      let received = 0
+      let total = 0
+      const chunks: Buffer[] = []
+
+      req.on('response', res => {
+        total = parseInt(res.headers['content-length'] as string ?? '0', 10)
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+          received += chunk.length
+          if (total > 0) {
+            const pct = Math.round((received / total) * 100)
+            event.sender.send('update-download-progress', pct)
+          }
+        })
+        res.on('end', () => {
+          writeFileSync(installerPath, Buffer.concat(chunks))
+          resolve()
+        })
+        res.on('error', reject)
+      })
+      req.on('error', reject)
+      req.end()
+    })
+
+    event.sender.send('update-download-progress', 100)
+
+    // Launch installer and quit
+    spawn(installerPath, [], { detached: true, stdio: 'ignore' }).unref()
+    setTimeout(() => app.quit(), 1500)
+
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+})
+
+/** Save cookies from the persistent session to the writable cookies.txt */
+async function saveSessionCookies(): Promise<void> {
+  const ses = session.fromPartition('persist:yt-cookies')
+  const yt  = await ses.cookies.get({ domain: 'youtube.com' })
+  const goo = await ses.cookies.get({ domain: 'google.com' })
+  const all = [...yt, ...goo]
+  if (all.length === 0) return
+  const lines = ['# Netscape HTTP Cookie File', '']
+  for (const c of all) {
+    const domain   = c.domain ?? ''
+    const hostOnly = domain.startsWith('.') ? 'TRUE' : 'FALSE'
+    const secure   = c.secure ? 'TRUE' : 'FALSE'
+    const expiry   = c.expirationDate ? Math.floor(c.expirationDate) : 0
+    lines.push(`${domain}\t${hostOnly}\t${c.path ?? '/'}\t${secure}\t${expiry}\t${c.name}\t${c.value}`)
+  }
+  writeFileSync(getWritableCookiesPath(), lines.join('\n'), 'utf-8')
+}
+
+/** Silently open YouTube in the background to refresh session cookies, then close. */
+async function autoRefreshCookies(): Promise<void> {
+  const ses = session.fromPartition('persist:yt-cookies')
+  const existing = await ses.cookies.get({ domain: 'youtube.com', name: 'SID' })
+  if (existing.length === 0) return // not logged in — skip
+
+  const win = new BrowserWindow({
+    width: 1, height: 1, show: false,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
+  })
+  try {
+    await Promise.race([
+      new Promise<void>(resolve => win.webContents.once('did-finish-load', resolve)),
+      new Promise<void>(resolve => setTimeout(resolve, 12000)),
+    ])
+    win.loadURL('https://www.youtube.com')
+    await Promise.race([
+      new Promise<void>(resolve => win.webContents.once('did-finish-load', resolve)),
+      new Promise<void>(resolve => setTimeout(resolve, 12000)),
+    ])
+    // Give YouTube a moment to set/rotate cookies
+    await new Promise(resolve => setTimeout(resolve, 2500))
+    await saveSessionCookies()
+  } catch { /* non-critical */ } finally {
+    win.destroy()
+  }
+}
+
 // App lifecycle
 app.whenReady().then(async () => {
   createWindow()
-  ensureCookiesWritable()   // copy bundled cookies.txt → AppData (writable)
+  ensureCookiesWritable()
   initYtDlp().catch(() => {})
+  // Auto-refresh YouTube cookies silently if user was previously signed in
+  setTimeout(() => autoRefreshCookies().catch(() => {}), 3000)
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 

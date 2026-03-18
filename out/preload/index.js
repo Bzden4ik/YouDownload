@@ -29,6 +29,19 @@ const api = {
   startDownload: (p) => electron.ipcRenderer.invoke("start-download", p),
   cancelDownload: (id) => electron.ipcRenderer.invoke("cancel-download", id),
   openFolder: (path) => electron.ipcRenderer.invoke("open-folder", path),
+  // Updates
+  checkForUpdates: () => electron.ipcRenderer.invoke("check-for-updates"),
+  downloadAndInstallUpdate: (url, name) => electron.ipcRenderer.invoke("download-and-install-update", url, name),
+  onUpdateAvailable: (cb) => {
+    const h = (_, d) => cb(d);
+    electron.ipcRenderer.on("update-available", h);
+    return () => electron.ipcRenderer.removeListener("update-available", h);
+  },
+  onUpdateDownloadProgress: (cb) => {
+    const h = (_, pct) => cb(pct);
+    electron.ipcRenderer.on("update-download-progress", h);
+    return () => electron.ipcRenderer.removeListener("update-download-progress", h);
+  },
   onDownloadProgress: (cb) => {
     const handler = (_, d) => cb(d);
     electron.ipcRenderer.on("download-progress", handler);

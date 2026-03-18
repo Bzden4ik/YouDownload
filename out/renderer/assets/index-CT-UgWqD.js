@@ -7026,6 +7026,18 @@ const translations = {
     set_updating: "Updating...",
     set_updated: "Up to date ✓",
     set_update_failed: "Update failed",
+    // App updates
+    set_auto_update: "Auto-check for updates",
+    set_check_update: "Check for updates",
+    set_checking: "Checking...",
+    set_no_update: "You have the latest version",
+    upd_available: "Update available",
+    upd_version: "Version",
+    upd_download: "Download & Install",
+    upd_downloading: "Downloading...",
+    upd_dismiss: "Dismiss",
+    upd_close_in: "Closes in",
+    upd_sec: "s",
     set_extract_cookies: "YouTube Account Cookies",
     set_extract_cookies_hint: "Opens YouTube in a built-in window. Sign in once — next time the session is already saved, just close the window.",
     set_extract_no_browser: "Select a browser above first (not Off)",
@@ -7106,6 +7118,18 @@ const translations = {
     set_updating: "Обновляю...",
     set_updated: "Актуально ✓",
     set_update_failed: "Ошибка обновления",
+    // App updates
+    set_auto_update: "Авто-проверка обновлений",
+    set_check_update: "Проверить обновления",
+    set_checking: "Проверяю...",
+    set_no_update: "Установлена последняя версия",
+    upd_available: "Доступно обновление",
+    upd_version: "Версия",
+    upd_download: "Скачать и установить",
+    upd_downloading: "Скачивается...",
+    upd_dismiss: "Скрыть",
+    upd_close_in: "Закроется через",
+    upd_sec: "с",
     set_extract_cookies: "Куки аккаунта YouTube",
     set_extract_cookies_hint: "Открывает YouTube во встроенном окне. Войдите один раз — в следующий раз сессия уже сохранена, просто закройте окно.",
     set_extract_no_browser: "Сначала выберите браузер выше (не Off)",
@@ -7135,7 +7159,8 @@ const DEFAULTS = {
   videoQuality: "1080",
   audioQuality: "mp3_best",
   downloadPath: "",
-  concurrentDownloads: 3
+  concurrentDownloads: 3,
+  autoCheckUpdates: true
 };
 async function loadState() {
   try {
@@ -7209,6 +7234,19 @@ function getTwitchChannelName(url) {
     return "";
   }
 }
+function getAvailableQualities(formats) {
+  const ALL = ["2160", "1440", "1080", "720", "480", "360", "240", "144"];
+  if (!formats || formats.length === 0) return ALL;
+  const heights = /* @__PURE__ */ new Set();
+  for (const f2 of formats) {
+    if (f2.height && f2.vcodec && f2.vcodec !== "none") {
+      heights.add(f2.height);
+    }
+  }
+  if (heights.size === 0) return ALL;
+  const maxH = Math.max(...heights);
+  return ALL.filter((q2) => parseInt(q2) <= maxH);
+}
 function getFormatArgs(type, quality) {
   if (type === "audio") {
     const map = {
@@ -7227,7 +7265,7 @@ function getFormatLabel(type, quality) {
     const m22 = { mp3_best: "MP3 · Best", mp3_192: "MP3 · 192k", mp3_128: "MP3 · 128k", m4a: "M4A · Best" };
     return m22[quality] ?? "Audio";
   }
-  const m2 = { "1080": "1080p · FHD", "720": "720p · HD", "480": "480p · SD", "360": "360p", "240": "240p", "144": "144p" };
+  const m2 = { "2160": "4K · UHD", "1440": "1440p · 2K", "1080": "1080p · FHD", "720": "720p · HD", "480": "480p · SD", "360": "360p", "240": "240p", "144": "144p" };
   return m2[quality] ?? quality;
 }
 function getTwitchFormatArgs(type, quality) {
@@ -7304,7 +7342,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-dot" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-ready", children: t2.status_ready })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.0.0" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.0.1" })
     ] })
   ] });
 }
@@ -7398,7 +7436,7 @@ function VideoInfoCard({ info, loading, t: t2 }) {
     ] })
   ] });
 }
-function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, initVq, initAq, onFormatChange, playlist, platform }) {
+function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, initVq, initAq, onFormatChange, playlist, platform, availableQualities }) {
   const [ftype, setFtype] = reactExports.useState(initType);
   const [vq, setVq] = reactExports.useState(initVq);
   const [aq, setAq] = reactExports.useState(initAq);
@@ -7416,11 +7454,22 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
     setAq(v2);
     onFormatChange(ftype, vq, v2);
   };
-  const VQ = [{ v: "1080", l: "1080p", b: "FHD" }, { v: "720", l: "720p", b: "HD" }, { v: "480", l: "480p", b: "SD" }, { v: "360", l: "360p", b: "" }, { v: "240", l: "240p", b: "" }, { v: "144", l: "144p", b: "" }];
+  const ALL_VQ = [
+    { v: "2160", l: "4K", b: "UHD" },
+    { v: "1440", l: "1440p", b: "2K" },
+    { v: "1080", l: "1080p", b: "FHD" },
+    { v: "720", l: "720p", b: "HD" },
+    { v: "480", l: "480p", b: "SD" },
+    { v: "360", l: "360p", b: "" },
+    { v: "240", l: "240p", b: "" },
+    { v: "144", l: "144p", b: "" }
+  ];
+  const VQ = availableQualities && availableQualities.length > 0 ? ALL_VQ.filter((q2) => availableQualities.includes(q2.v)) : ALL_VQ;
+  const safeVq = VQ.find((q2) => q2.v === vq) ? vq : VQ[0]?.v ?? "1080";
   const TQ = [{ v: "source", l: "Source", b: "MAX" }, { v: "1080p60", l: "1080p", b: "60fps" }, { v: "720p60", l: "720p", b: "60fps" }, { v: "480p", l: "480p", b: "" }, { v: "360p", l: "360p", b: "" }, { v: "160p", l: "160p", b: "" }];
   const AQ = [{ v: "mp3_best", f: "MP3", s: "Best" }, { v: "mp3_192", f: "MP3", s: "192 kbps" }, { v: "mp3_128", f: "MP3", s: "128 kbps" }, { v: "m4a", f: "M4A", s: "Best" }];
-  const go = () => onDownload(ftype, isTwitch ? ftype === "video" ? tq : "mp3_best" : ftype === "video" ? vq : aq);
-  const ql2 = isTwitch ? ftype === "video" ? TQ.find((q2) => q2.v === tq)?.l : "MP3" : ftype === "video" ? VQ.find((q2) => q2.v === vq)?.l : AQ.find((q2) => q2.v === aq)?.s;
+  const go = () => onDownload(ftype, isTwitch ? ftype === "video" ? tq : "mp3_best" : ftype === "video" ? safeVq : aq);
+  const ql2 = isTwitch ? ftype === "video" ? TQ.find((q2) => q2.v === tq)?.l : "MP3" : ftype === "video" ? VQ.find((q2) => q2.v === safeVq)?.l : AQ.find((q2) => q2.v === aq)?.s;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fmt-section", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fmt-tabs", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `fmt-tab ${ftype === "video" ? "fmt-tab-on" : ""}`, onClick: () => setFtypeAndSave("video"), children: [
@@ -7445,7 +7494,7 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
     ] }, q2.v)) : isTwitch ? TQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${tq === q2.v ? "q-btn-on" : ""}`, onClick: () => setTq(q2.v), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.l }),
       q2.b && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-badge", children: q2.b })
-    ] }, q2.v)) : VQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${vq === q2.v ? "q-btn-on" : ""}`, onClick: () => setVqAndSave(q2.v), children: [
+    ] }, q2.v)) : VQ.map((q2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `q-btn ${safeVq === q2.v ? "q-btn-on" : ""}`, onClick: () => setVqAndSave(q2.v), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-main", children: q2.l }),
       q2.b && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "q-badge", children: q2.b })
     ] }, q2.v)) }),
@@ -7719,9 +7768,10 @@ function ThemeCards({ current, onChange, t: t2 }) {
     ] })
   ] });
 }
-function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeChange, highlightCookies }) {
+function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange, onManualCheck }) {
   const [local, setLocal] = reactExports.useState(settings);
   const [updateState, setUpdateState] = reactExports.useState("idle");
+  const [checkState, setCheckState] = reactExports.useState("idle");
   const [extractState, setExtractState] = reactExports.useState("idle");
   const [extractError, setExtractError] = reactExports.useState("");
   const [ytLoggedIn, setYtLoggedIn] = reactExports.useState(false);
@@ -7739,6 +7789,12 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
     const r2 = await window.api?.updateYtDlp();
     setUpdateState(r2?.success ? "ok" : "fail");
     setTimeout(() => setUpdateState("idle"), 3e3);
+  };
+  const handleManualCheck = async () => {
+    setCheckState("busy");
+    await onManualCheck();
+    setCheckState("ok");
+    setTimeout(() => setCheckState("idle"), 3e3);
   };
   const handleExtract = async () => {
     if (local.cookiesFromBrowser === "none") return;
@@ -7800,6 +7856,38 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
       ] }) }),
       extractState === "fail" && extractError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-extract-error", children: extractError })
     ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_auto_update }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-update-row", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `set-toggle ${autoCheckUpdates ? "set-toggle-on" : ""}`,
+            onClick: () => onAutoCheckChange(!autoCheckUpdates),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-toggle-thumb" })
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-toggle-label", children: autoCheckUpdates ? "ON" : "OFF" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "set-check-btn",
+            onClick: handleManualCheck,
+            disabled: checkState === "busy",
+            children: checkState === "busy" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
+              t2.set_checking
+            ] }) : checkState === "ok" ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--g)" }, children: t2.set_no_update }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "23 4 23 10 17 10" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20.49 15a9 9 0 1 1-2.12-9.36L23 10" })
+              ] }),
+              t2.set_check_update
+            ] })
+          }
+        )
+      ] })
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "set-save", onClick: () => onSave(local), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" }),
@@ -7818,6 +7906,87 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
       ] }),
       t2.set_update_ytdlp
     ] }) })
+  ] });
+}
+function UpdateBanner({ info, t: t2, onDismiss }) {
+  const [countdown, setCountdown] = reactExports.useState(15);
+  const [dlProgress, setDlProgress] = reactExports.useState(-1);
+  const [visible, setVisible] = reactExports.useState(false);
+  const countdownRef = reactExports.useRef(null);
+  const stopCountdown = () => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+  };
+  reactExports.useEffect(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
+    countdownRef.current = setInterval(() => setCountdown((n2) => {
+      if (n2 <= 1) {
+        stopCountdown();
+        onDismiss();
+        return 0;
+      }
+      return n2 - 1;
+    }), 1e3);
+    const unsub = window.api?.onUpdateDownloadProgress?.((pct) => setDlProgress(pct));
+    return () => {
+      stopCountdown();
+      unsub?.();
+    };
+  }, []);
+  const handleInstall = async () => {
+    if (!info.downloadUrl) return;
+    stopCountdown();
+    setDlProgress(0);
+    await window.api?.downloadAndInstallUpdate(info.downloadUrl, info.assetName ?? "YouDownload-setup.exe");
+  };
+  const handleDismiss = () => {
+    stopCountdown();
+    setVisible(false);
+    setTimeout(onDismiss, 400);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `upd-banner ${visible ? "upd-banner-in" : ""}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "upd-banner-glow" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "upd-banner-inner", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "upd-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "17 8 12 3 7 8" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "3", x2: "12", y2: "15" })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "upd-content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "upd-title", children: t2.upd_available }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "upd-subtitle", children: [
+          t2.upd_version,
+          " ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "upd-ver-old", children: info.currentVersion }),
+          " → ",
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "upd-ver-new", children: [
+            "v",
+            info.latestVersion
+          ] })
+        ] }),
+        dlProgress >= 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "upd-progress-wrap", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "upd-progress-bar", style: { width: `${dlProgress}%` } }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "upd-progress-pct", children: [
+            dlProgress,
+            "%"
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "upd-actions", children: [
+        dlProgress < 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "upd-btn-install", onClick: handleInstall, children: t2.upd_download }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "upd-dl-label", children: t2.upd_downloading }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "upd-btn-dismiss", onClick: handleDismiss, children: [
+          t2.upd_dismiss,
+          dlProgress < 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "upd-countdown", children: [
+            " ",
+            countdown,
+            t2.upd_sec
+          ] })
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "upd-timer-bar", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "upd-timer-fill", style: { animationDuration: "15s" } }) })
   ] });
 }
 function SetupOverlay({ onSetup, loading, error, t: t2 }) {
@@ -7865,6 +8034,8 @@ function App() {
   const [playlistLoading, setPlaylistLoading] = reactExports.useState(false);
   const [platform, setPlatform] = reactExports.useState("youtube");
   const [twitchChannel, setTwitchChannel] = reactExports.useState(null);
+  const [autoCheckUpdates, setAutoCheckUpdates] = reactExports.useState(true);
+  const [updateInfo, setUpdateInfo] = reactExports.useState(null);
   const urlRef = reactExports.useRef("");
   const t2 = translations[lang];
   const toggleLang = () => {
@@ -7885,6 +8056,7 @@ function App() {
       setTheme(s.theme ?? "fleet");
       document.documentElement.setAttribute("data-theme", s.theme === "apathy" ? "apathy" : "");
       setInitFmt({ type: s.formatType, vq: s.videoQuality, aq: s.audioQuality });
+      setAutoCheckUpdates(s.autoCheckUpdates !== false);
       const elSettings = await window.api.getSettings();
       setSettings({ ...elSettings, downloadPath: s.downloadPath || elSettings.downloadPath, concurrentDownloads: s.concurrentDownloads || elSettings.concurrentDownloads });
       const hist = await loadHistory();
@@ -7918,6 +8090,34 @@ function App() {
       u3();
     };
   }, []);
+  reactExports.useEffect(() => {
+    if (!window.api) return;
+    const unsub = window.api.onUpdateAvailable?.((info) => {
+      if (autoCheckUpdates) setUpdateInfo(info);
+    });
+    return () => unsub?.();
+  }, [autoCheckUpdates]);
+  reactExports.useEffect(() => {
+    if (!autoCheckUpdates) return;
+    const timer = setTimeout(async () => {
+      try {
+        const r2 = await window.api?.checkForUpdates();
+        if (r2?.hasUpdate) setUpdateInfo(r2);
+      } catch {
+      }
+    }, 4e3);
+    return () => clearTimeout(timer);
+  }, []);
+  const handleAutoCheckChange = (v2) => {
+    setAutoCheckUpdates(v2);
+    saveState({ autoCheckUpdates: v2 });
+  };
+  const handleManualCheck = async () => {
+    const r2 = await window.api?.checkForUpdates();
+    if (r2?.hasUpdate) setUpdateInfo(r2);
+    else setUpdateInfo(null);
+    return r2;
+  };
   const handleSetup = async () => {
     setSetupBusy(true);
     setSetupError("");
@@ -8036,6 +8236,7 @@ function App() {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app", children: [
     theme === "apathy" && /* @__PURE__ */ jsxRuntimeExports.jsx(GlowOrbs, {}),
     showSetup && /* @__PURE__ */ jsxRuntimeExports.jsx(SetupOverlay, { onSetup: handleSetup, loading: setupBusy, error: setupError, t: t2 }),
+    updateInfo?.hasUpdate && /* @__PURE__ */ jsxRuntimeExports.jsx(UpdateBanner, { info: updateInfo, t: t2, onDismiss: () => setUpdateInfo(null) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(TitleBar, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app-body", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(Sidebar, { view, onChange: setView, activeCount, lang, onLangToggle: toggleLang }),
@@ -8073,7 +8274,7 @@ function App() {
                 t2.playlist_count
               ] })
             ] }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(FormatSelector, { onDownload: handleDownload, onDownloadAll: handleDownloadAll, playlist, platform, disabled: !videoInfo || fetching, t: t2, initType: initFmt.type, initVq: initFmt.vq, initAq: initFmt.aq, onFormatChange: (type, vq, aq) => saveState({ formatType: type, videoQuality: vq, audioQuality: aq }) }, "fmt-selector")
+            /* @__PURE__ */ jsxRuntimeExports.jsx(FormatSelector, { onDownload: handleDownload, onDownloadAll: handleDownloadAll, playlist, platform, disabled: !videoInfo || fetching, t: t2, initType: initFmt.type, initVq: initFmt.vq, initAq: initFmt.aq, onFormatChange: (type, vq, aq) => saveState({ formatType: type, videoQuality: vq, audioQuality: aq }), availableQualities: videoInfo ? getAvailableQualities(videoInfo.formats) : void 0 }, "fmt-selector")
           ] }),
           downloads.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "queue-section", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "queue-head", children: [
@@ -8091,7 +8292,7 @@ function App() {
           await clearHistory();
           setDownloads((p2) => p2.filter((d) => d.status === "downloading" || d.status === "pending"));
         } }),
-        view === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsView, { settings, onSave: handleSaveSettings, onPickFolder: handlePickFolder, t: t2, theme, onThemeChange: handleThemeChange, highlightCookies })
+        view === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsView, { settings, onSave: handleSaveSettings, onPickFolder: handlePickFolder, t: t2, theme, onThemeChange: handleThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange: handleAutoCheckChange, onManualCheck: handleManualCheck })
       ] })
     ] })
   ] });
