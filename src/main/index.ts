@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, session } from 'electron'
+﻿import { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, session } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, chmodSync, copyFileSync, writeFileSync } from 'fs'
 import { execSync, spawnSync, spawn } from 'child_process'
@@ -80,6 +80,29 @@ function getWritableCookiesPath(): string {
   return join(app.getPath('userData'), 'cookies.txt')
 }
 
+/** VK cookies path */
+function getVkCookiesPath(): string {
+  return join(app.getPath('userData'), 'vk-cookies.txt')
+}
+
+/** Normalize VK URLs: extract video ID (+ access_key) from ?z= parameter */
+function normalizeVkUrl(url: string): string {
+  if (!url.includes('vk.com') && !url.includes('vkvideo.ru')) return url
+  try {
+    const u = new URL(url)
+    const z = u.searchParams.get('z')
+    if (z) {
+      // z=video-123456_789/accesskey  — the part after / is the private access key
+      const m = z.match(/^(video-?\d+_\d+)(?:\/([a-f0-9]+))?/)
+      if (m) {
+        const base = `https://vk.com/${m[1]}`
+        return m[2] ? `${base}?access_key=${m[2]}` : base
+      }
+    }
+  } catch { /* ignore */ }
+  return url
+}
+
 /** Copy bundled cookies.txt to writable AppData on startup */
 function ensureCookiesWritable(): void {
   const src = join(getYtDlpPath(), '..', 'cookies.txt')
@@ -117,6 +140,92 @@ let ytDlpWrap: YTDlpWrap | null = null
 const activeDownloads = new Map<string, { emitter: ReturnType<YTDlpWrap['exec']>; cancelled: boolean }>()
 let mainWindow: BrowserWindow | null = null
 
+// ── Tiny local HTTP server for Twitch embed preview ──────────────────────────
+import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http'
+
+let previewServerPort = 0
+
+function startPreviewServer(): void {
+  const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
+    // Parse ?id=VIDEO_ID from URL
+    const url = new URL(req.url ?? '/', `http://localhost`)
+    const videoId = url.searchParams.get('id') ?? ''
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
+  #twitch-player { width: 100vw; height: 100vh; }
+</style>
+</head><body>
+<div id="twitch-player"></div>
+<script src="https://player.twitch.tv/js/embed/v1.js"></script>
+<script>
+  var player = new Twitch.Player("twitch-player", {
+    video: "${videoId}",
+    parent: ["localhost"],
+    autoplay: true,
+    muted: false,
+    width: "100%",
+    height: "100%"
+  });
+  window.__twitchPlayer = player;
+  player.addEventListener(Twitch.Player.READY, function() {
+    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 300);
+    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 1000);
+  });
+</script>
+</body></html>`
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(html)
+  })
+  server.listen(0, '127.0.0.1', () => {
+    const addr = server.address() as { port: number }
+    previewServerPort = addr.port
+  })
+}
+
+/** Inject CSS into all Twitch player subframes to hide subscribe/follow overlays */
+function injectTwitchOverrideCSS(wc: Electron.WebContents): void {
+  try {
+    const css = `
+      /* Hide subscribe/follow/mature overlays in Twitch embed */
+      .player-overlay-background,
+      .recommendations-overlay,
+      .content-overlay-gate,
+      .click-handler ~ .channel-info-bar,
+      .top-bar, .channel-info-bar,
+      [data-a-target="subscribe-button__subscribe-button"],
+      [data-a-target="follow-button"],
+      [data-test-selector="subscribe-button__subscribe-button"],
+      [data-a-target="player-overlay-mature-accept"],
+      .pl-browse-native, .browse-channel-btn-container,
+      .subscribe-cta, .follow-cta,
+      .pl-rec-overlay,
+      .player-overlay__content:not(.video-player__overlay):not(.quality-selector-menu) {
+        display: none !important;
+      }
+    `
+    for (const frame of wc.mainFrame.framesInSubtree) {
+      if (frame.url?.includes('player.twitch.tv')) {
+        frame.executeJavaScript(`
+          (() => {
+            if (document.getElementById('_yd_twitch_fix')) return;
+            const s = document.createElement('style');
+            s.id = '_yd_twitch_fix';
+            s.textContent = ${JSON.stringify(css)};
+            (document.head || document.documentElement).appendChild(s);
+          })();
+        `).catch(() => {})
+      }
+    }
+  } catch { /* non-critical */ }
+}
+
+ipcMain.handle('get-preview-port', () => previewServerPort)
+
 /** Find Node.js path for yt-dlp JS runtime */
 function findNodePath(): string | null {
   const candidates = ['C:\\Program Files\\nodejs\\node.exe', 'C:\\Program Files (x86)\\nodejs\\node.exe']
@@ -132,32 +241,40 @@ function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: str
   const activeCookies = explicit ?? writable
 
   const isTwitch  = url?.includes('twitch.tv') ?? false
+  const isVK      = (url?.includes('vk.com') || url?.includes('vkvideo.ru')) ?? false
   const isMusicYT = url?.includes('music.youtube.com') ?? false
 
   const args: string[] = [
     '--retries', '3',
     '--fragment-retries', '3',
     '--skip-unavailable-fragments',
+    '--remote-components', 'ejs:github',
   ]
 
-  if (!isTwitch) {
-    // YouTube Music: mweb/web_music require GVS PO Token with cookies — use ios which doesn't
-    // Regular YouTube: mweb works with cookies, ios,mweb works without
-    let playerClient: string
+  if (!isTwitch && !isVK) {
+    // With cookies: do not force a client — yt-dlp picks the best one automatically.
+    // Without cookies: ios is reliable (no n-challenge, no PO Token needed).
+    // YouTube Music with cookies: android_music (no PO Token, accepts cookies).
     if (isMusicYT) {
-      // ios doesn't support cookies → use android_music (supports cookies, no PO Token needed)
-      // without cookies ios works fine
-      playerClient = activeCookies ? 'android_music' : 'ios'
-    } else {
-      playerClient = activeCookies ? 'mweb' : 'ios,mweb'
+      const playerClient = activeCookies ? 'android_music' : 'ios'
+      args.push('--extractor-args', `youtube:player_client=${playerClient}`)
+    } else if (!activeCookies) {
+      args.push('--extractor-args', 'youtube:player_client=ios')
     }
-    args.push('--extractor-args', `youtube:player_client=${playerClient}`)
-
-    const nodePath = findNodePath()
-    if (nodePath) args.push('--js-runtimes', `node:${nodePath}`)
+    // activeCookies + regular YouTube: no --extractor-args, let yt-dlp decide
   }
 
-  if (activeCookies) args.push('--cookies', activeCookies)
+  if (isVK) {
+    // Prefer saved VK session cookies; fall back to browser cookies if browser is selected
+    const vkCookies = existsSync(getVkCookiesPath()) ? getVkCookiesPath() : null
+    if (vkCookies) {
+      args.push('--cookies', vkCookies)
+    } else if (cookiesFromBrowser && cookiesFromBrowser !== 'none') {
+      args.push('--cookies-from-browser', cookiesFromBrowser)
+    }
+  } else if (activeCookies) {
+    args.push('--cookies', activeCookies)
+  }
   return args
 }
 
@@ -167,7 +284,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1300, height: 840, minWidth: 960, minHeight: 620,
     frame: false, backgroundColor: '#05050A', show: false, autoHideMenuBar: true, icon,
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: false }
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true }
   })
   mainWindow.on('ready-to-show', () => { mainWindow?.show(); mainWindow?.focus() })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
@@ -277,6 +394,47 @@ ipcMain.handle('extract-browser-cookies', async () => {
   }
 })
 
+// Check if VK session has cookies
+ipcMain.handle('check-vk-session', async () => {
+  const ses = session.fromPartition('persist:vk-cookies')
+  const cookies = await ses.cookies.get({ domain: 'vk.com', name: 'remixsid' })
+  return { loggedIn: cookies.length > 0 }
+})
+
+// Opens embedded VK window. User logs in, closes — cookies saved to vk-cookies.txt
+ipcMain.handle('extract-vk-cookies', async () => {
+  const ses = session.fromPartition('persist:vk-cookies')
+
+  const loginWin = new BrowserWindow({
+    width: 1080, height: 720,
+    title: 'YouDownload — Sign in to VK, then close this window',
+    autoHideMenuBar: true,
+    parent: mainWindow ?? undefined,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
+  })
+
+  loginWin.loadURL('https://vk.com')
+  loginWin.show()
+  await new Promise<void>(resolve => loginWin.on('closed', resolve))
+
+  try {
+    const vk = await ses.cookies.get({ domain: 'vk.com' })
+    if (vk.length === 0) return { success: false, error: 'No VK cookies found — make sure you signed in before closing.' }
+    const lines = ['# Netscape HTTP Cookie File', '']
+    for (const c of vk) {
+      const domain   = c.domain ?? ''
+      const hostOnly = domain.startsWith('.') ? 'TRUE' : 'FALSE'
+      const secure   = c.secure ? 'TRUE' : 'FALSE'
+      const expiry   = c.expirationDate ? Math.floor(c.expirationDate) : 0
+      lines.push(`${domain}\t${hostOnly}\t${c.path ?? '/'}\t${secure}\t${expiry}\t${c.name}\t${c.value}`)
+    }
+    writeFileSync(getVkCookiesPath(), lines.join('\n'), 'utf-8')
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: String(e) }
+  }
+})
+
 /** Strip WARNING lines from yt-dlp output, keep only the key ERROR */
 function cleanYtDlpError(raw: string): string {
   const lines = raw.split('\n')
@@ -291,8 +449,9 @@ function cleanYtDlpError(raw: string): string {
 }
 
 // Fetch video info
-ipcMain.handle('fetch-video-info', async (_e, url: string) => {
+ipcMain.handle('fetch-video-info', async (_e, rawUrl: string) => {
   if (!ytDlpWrap) return { success: false, error: 'yt-dlp not initialized' }
+  const url = normalizeVkUrl(rawUrl)
   try {
     const s = store.get('settings')
     const baseArgs = getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, url)
@@ -345,10 +504,11 @@ ipcMain.handle('fetch-playlist-info', async (_e, url: string) => {
 })
 
 // Start download
-ipcMain.handle('start-download', async (event, payload: { id: string; url: string; formatArgs: string[]; downloadPath: string }) => {
+ipcMain.handle('start-download', async (event, payload: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number }) => {
   if (!ytDlpWrap) return { success: false, error: 'yt-dlp not initialized' }
   const s = store.get('settings')
   const outDir = payload.downloadPath || s.downloadPath
+  payload = { ...payload, url: normalizeVkUrl(payload.url) }
 
   // YouTube Music содержит только аудио — заменяем видео-форматы на аудио
   let formatArgs = payload.formatArgs
@@ -359,6 +519,22 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
     }
   }
 
+  // Для HLS-стримов с --download-sections прогресс идёт по фрагментам (0→100 на каждый),
+  // поэтому используем оценку прогресса по времени вместо парсинга % из вывода.
+  const isSectionDownload = formatArgs.includes('--download-sections')
+  let sectionTimer: ReturnType<typeof setInterval> | null = null
+
+  if (isSectionDownload && payload.sectionDuration && payload.sectionDuration > 0) {
+    const startTime = Date.now()
+    // Добавляем 30% запас времени — Twitch VOD скачивается примерно в реальном времени
+    const expectedMs = payload.sectionDuration * 1000 * 1.3
+    sectionTimer = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      const pct = Math.min((elapsed / expectedMs) * 95, 95)
+      event.sender.send('download-progress', { id: payload.id, progress: pct, speed: '', eta: '', status: 'downloading' })
+    }, 800)
+  }
+
   const args = [payload.url, ...formatArgs, ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url),
     '-o', join(outDir, '%(title)s.%(ext)s'), '--no-playlist', '--progress', '--newline']
   try {
@@ -366,6 +542,7 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
     activeDownloads.set(payload.id, { emitter, cancelled: false })
     emitter.on('ytDlpEvent', (type: string, data: string) => {
       if (type === 'download') {
+        if (sectionTimer) return // прогресс управляется таймером
         const pct = data.match(/(\d+\.?\d*)%/)?.[1]
         const speed = data.match(/at\s+([\d.]+\s*\S+\/s)/)?.[1]
         const eta = data.match(/ETA\s+([\d:]+)/)?.[1]
@@ -373,11 +550,13 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
       }
     })
     emitter.on('error', (err: Error) => {
+      if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
       const dl = activeDownloads.get(payload.id)
       if (!dl?.cancelled) event.sender.send('download-error', { id: payload.id, error: err.message })
       activeDownloads.delete(payload.id)
     })
     emitter.on('close', () => {
+      if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
       const dl = activeDownloads.get(payload.id)
       if (!dl?.cancelled) event.sender.send('download-complete', { id: payload.id })
       activeDownloads.delete(payload.id)
@@ -403,6 +582,7 @@ ipcMain.handle('cancel-download', (_e, id: string) => {
 })
 
 ipcMain.handle('open-folder', (_e, path: string) => shell.openPath(path))
+ipcMain.handle('open-external', (_e, url: string) => shell.openExternal(url))
 
 // ── Auto-updater ─────────────────────────────────────────────────────────────
 
@@ -563,13 +743,59 @@ async function autoRefreshCookies(): Promise<void> {
   }
 }
 
+/** Silently open VK in the background to refresh session cookies, then close. */
+async function autoRefreshVkCookies(): Promise<void> {
+  const ses = session.fromPartition('persist:vk-cookies')
+  const existing = await ses.cookies.get({ domain: 'vk.com', name: 'remixsid' })
+  if (existing.length === 0) return
+
+  const win = new BrowserWindow({
+    width: 1, height: 1, show: false,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
+  })
+  try {
+    win.loadURL('https://vk.com')
+    await Promise.race([
+      new Promise<void>(resolve => win.webContents.once('did-finish-load', resolve)),
+      new Promise<void>(resolve => setTimeout(resolve, 12000)),
+    ])
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    const vk = await ses.cookies.get({ domain: 'vk.com' })
+    if (vk.length > 0) {
+      const lines = ['# Netscape HTTP Cookie File', '']
+      for (const c of vk) {
+        const domain   = c.domain ?? ''
+        const hostOnly = domain.startsWith('.') ? 'TRUE' : 'FALSE'
+        const secure   = c.secure ? 'TRUE' : 'FALSE'
+        const expiry   = c.expirationDate ? Math.floor(c.expirationDate) : 0
+        lines.push(`${domain}\t${hostOnly}\t${c.path ?? '/'}\t${secure}\t${expiry}\t${c.name}\t${c.value}`)
+      }
+      writeFileSync(getVkCookiesPath(), lines.join('\n'), 'utf-8')
+    }
+  } catch { /* non-critical */ } finally {
+    win.destroy()
+  }
+}
+
 // App lifecycle
 app.whenReady().then(async () => {
+  // Allow media (video/audio) permissions for the preview webview session
+  session.fromPartition('persist:preview').setPermissionRequestHandler((_wc, permission, callback) => {
+    const allowed = ['media', 'autoplay', 'fullscreen']
+    callback(allowed.includes(permission))
+  })
+
+  // Inject CSS into Twitch player sub-frames to hide subscribe/follow overlays
+  app.on('web-contents-created', (_, wc) => {
+    wc.on('did-finish-load', () => injectTwitchOverrideCSS(wc))
+    wc.on('did-frame-finish-load', () => injectTwitchOverrideCSS(wc))
+  })
+  startPreviewServer()
   createWindow()
   ensureCookiesWritable()
   initYtDlp().catch(() => {})
-  // Auto-refresh YouTube cookies silently if user was previously signed in
-  setTimeout(() => autoRefreshCookies().catch(() => {}), 3000)
+  // Auto-refresh cookies silently if user was previously signed in
+  setTimeout(() => { autoRefreshCookies().catch(() => {}); autoRefreshVkCookies().catch(() => {}) }, 3000)
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 

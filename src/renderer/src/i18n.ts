@@ -1,4 +1,4 @@
-export type Lang = 'en' | 'ru'
+﻿export type Lang = 'en' | 'ru'
 
 export const translations = {
   en: {
@@ -12,6 +12,7 @@ export const translations = {
     paste_url:     'PASTE URL',
     url_hint:      'YouTube · YouTube Music · Shorts · Playlists · 1000+ sites',
     twitch_hint:   'Twitch VODs · Clips · Highlights · Live streams',
+    vk_hint:       'VK Videos · vk.com/video · vkvideo.ru',
     twitch_channel_vods:  'Past Broadcasts',
     twitch_channel_clips: 'Clips',
     twitch_loading: 'Loading...',
@@ -20,6 +21,7 @@ export const translations = {
     twitch_selected: 'Selected',
     twitch_sel_clear: 'Clear',
     twitch_sel_download: 'Download selected',
+    twitch_search_placeholder: 'Search by title...',
     btn_paste:     'Paste',
     btn_fetch:     'Fetch',
 
@@ -86,6 +88,10 @@ export const translations = {
     set_extracting:           'Waiting for you to close the window...',
     set_extract_ok:           'Cookies saved ✓',
     set_extract_fail:         'No cookies found',
+    set_extract_vk_cookies:      'VK Account Cookies',
+    set_extract_vk_cookies_hint: 'Required for private VK videos (in messages, closed groups). Opens VK in a built-in window — sign in once, session is saved.',
+    set_extract_vk_ok:           'VK cookies saved ✓',
+    set_extract_vk_fail:         'No VK cookies found',
 
     // Setup overlay
     setup_sub:      'First launch: downloading yt-dlp engine (~10 MB from GitHub)',
@@ -102,6 +108,15 @@ export const translations = {
     playlist_loading: 'Loading playlist...',
     playlist_download_all: 'Download all',
     playlist_download_one: 'This video only',
+    time_range_toggle: 'Download time range',
+    time_range_no_duration: 'Duration unknown — cannot show timeline',
+    vp_title: 'Preview & select segment',
+    vp_loading: 'Loading player…',
+    vp_mark_start: 'Mark start',
+    vp_mark_end: 'Mark end',
+    vp_seek_hint: 'Jump to this time',
+    vp_download: 'Download segment',
+    vp_open_player: 'Watch & select segment',
   },
 
   ru: {
@@ -115,6 +130,7 @@ export const translations = {
     paste_url:     'ВСТАВИТЬ ССЫЛКУ',
     url_hint:      'YouTube · YouTube Music · Shorts · Плейлисты · 1000+ сайтов',
     twitch_hint:   'Twitch VOD · Клипы · Хайлайты · Прямые эфиры',
+    vk_hint:       'VK Видео · vk.com/video · vkvideo.ru',
     twitch_channel_vods:  'Трансляции',
     twitch_channel_clips: 'Клипы',
     twitch_loading: 'Загружаю...',
@@ -123,6 +139,7 @@ export const translations = {
     twitch_selected: 'Выбрано',
     twitch_sel_clear: 'Сбросить',
     twitch_sel_download: 'Скачать выбранное',
+    twitch_search_placeholder: '\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044e...',
     btn_paste:     'Вставить',
     btn_fetch:     'Найти',
 
@@ -189,6 +206,10 @@ export const translations = {
     set_extracting:           'Ожидаю закрытия окна...',
     set_extract_ok:           'Куки сохранены ✓',
     set_extract_fail:         'Куки не найдены',
+    set_extract_vk_cookies:      'Куки аккаунта ВКонтакте',
+    set_extract_vk_cookies_hint: 'Нужно для приватных видео ВК (переписки, закрытые группы). Откроет встроенное окно — войдите один раз, сессия сохранится.',
+    set_extract_vk_ok:           'Куки ВК сохранены ✓',
+    set_extract_vk_fail:         'Куки ВК не найдены',
 
     // Setup overlay
     setup_sub:      'Первый запуск: скачивание движка yt-dlp (~10 МБ с GitHub)',
@@ -205,8 +226,17 @@ export const translations = {
     playlist_loading: 'Загружаю плейлист...',
     playlist_download_all: 'Скачать все',
     playlist_download_one: 'Только это видео',
+    time_range_toggle: 'Скачать по таймингу',
+    time_range_no_duration: 'Длительность неизвестна — шкала недоступна',
+    vp_title: 'Предпросмотр — выбор отрезка',
+    vp_loading: 'Загружаю плеер…',
+    vp_mark_start: 'Начало здесь',
+    vp_mark_end: 'Конец здесь',
+    vp_seek_hint: 'Перейти к этому времени',
+    vp_download: 'Скачать отрезок',
+    vp_open_player: 'Смотреть и выбрать отрезок',
   }
 } as const
 
 export type TranslationKey = keyof typeof translations.en
-export type Translations = typeof translations.en
+export type Translations = { [K in TranslationKey]: string }

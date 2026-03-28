@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { type Lang, type Translations, translations } from './i18n'
 import { loadState, saveState, loadHistory, appendHistory, clearHistory, type PersistedDownload } from './storage'
 
@@ -40,7 +40,7 @@ interface UpdateInfo {
   assetSize?: number
   error?: string
 }
-type Platform = 'youtube' | 'twitch'
+type Platform = 'youtube' | 'twitch' | 'vk'
 
 interface DownloadItem { id: string; url: string; title: string; thumbnail?: string; formatLabel: string; status: DownloadStatus; progress: number; speed?: string; eta?: string; error?: string; createdAt: number }
 interface AppSettings { downloadPath: string; defaultFormat: string; defaultQuality: string; concurrentDownloads: number; cookiesFromBrowser: string; cookiesFile: string }
@@ -56,6 +56,7 @@ function isCookieError(err: string): boolean {
     || l.includes('age-restricted') || l.includes('private') || l.includes('members')
     || l.includes('dpapi') || l.includes('chrome cookie') || l.includes('could not copy')
     || l.includes('requires authentication') || l.includes('confirm your age') || l.includes('not available')
+    || l.includes('access restricted')
 }
 
 function formatDur(s?: number): string {
@@ -71,7 +72,11 @@ function formatViews(n: number | undefined, t: Translations): string {
   return `${n} ${t.views}`
 }
 
-function detectPlatform(url: string): Platform { return url.includes('twitch.tv') ? 'twitch' : 'youtube' }
+function detectPlatform(url: string): Platform {
+  if (url.includes('twitch.tv')) return 'twitch'
+  if (url.includes('vk.com') || url.includes('vkvideo.ru')) return 'vk'
+  return 'youtube'
+}
 
 function isTwitchChannelUrl(url: string): boolean {
   if (!url.includes('twitch.tv')) return false
@@ -134,13 +139,393 @@ function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality):
 function getTwitchFormatArgs(type: FormatType, quality: TwitchQuality): string[] {
   if (type === 'audio') return ['-f','audio_only/bestaudio','-x','--audio-format','mp3','--audio-quality','0']
   const map: Record<TwitchQuality,string> = { source:'best', '1080p60':'1080p60/1080p/best', '720p60':'720p60/720p/best', '480p':'480p/best', '360p':'360p/best', '160p':'160p/best' }
-  return ['-f', map[quality]]
+  return ['-f', map[quality], '--remux-video', 'mp4']
 }
 
 function getTwitchFormatLabel(type: FormatType, quality: TwitchQuality): string {
   if (type === 'audio') return 'MP3 · Best'
   const m: Record<TwitchQuality,string> = { source:'Source', '1080p60':'1080p60', '720p60':'720p60', '480p':'480p', '360p':'360p', '160p':'160p' }
   return m[quality] ?? quality
+}
+
+function secsToTimestamp(s: number): string {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+}
+
+// ═══════════════════════ TIME RANGE SLIDER ═══════════════════════
+
+function TimeRangePicker({ duration, startSec, endSec, onChange }: {
+  duration: number; startSec: number; endSec: number
+  onChange: (s: number, e: number) => void
+}) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef<'start' | 'end' | null>(null)
+
+  const pct = (v: number) => Math.max(0, Math.min(100, (v / duration) * 100))
+
+  const posToSec = (clientX: number): number => {
+    if (!trackRef.current) return 0
+    const rect = trackRef.current.getBoundingClientRect()
+    return Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * duration)
+  }
+
+  const startDrag = (handle: 'start' | 'end') => (e: React.MouseEvent) => {
+    e.preventDefault()
+    draggingRef.current = handle
+    const onMove = (me: MouseEvent) => {
+      const sec = posToSec(me.clientX)
+      if (draggingRef.current === 'start') onChange(Math.max(0, Math.min(sec, endSec - 1)), endSec)
+      else onChange(startSec, Math.min(duration, Math.max(sec, startSec + 1)))
+    }
+    const onUp = () => { draggingRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const clickTrack = (e: React.MouseEvent) => {
+    if (draggingRef.current) return
+    const sec = posToSec(e.clientX)
+    if (Math.abs(sec - startSec) <= Math.abs(sec - endSec)) onChange(Math.max(0, Math.min(sec, endSec - 1)), endSec)
+    else onChange(startSec, Math.min(duration, Math.max(sec, startSec + 1)))
+  }
+
+  const selDur = endSec - startSec
+  const startPct = pct(startSec)
+  const endPct = pct(endSec)
+
+  return (
+    <div className="tr-slider-wrap">
+      <div className="tr-slider-meta">
+        <span className="tr-sel-label">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          {secsToTimestamp(startSec)}
+        </span>
+        <span className="tr-sel-dur">{secsToTimestamp(selDur)}</span>
+        <span className="tr-sel-label">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          {secsToTimestamp(endSec)}
+        </span>
+      </div>
+      <div className="tr-track-outer" ref={trackRef} onClick={clickTrack}>
+        <div className="tr-track-bg"/>
+        <div className="tr-track-fill" style={{ left:`${startPct}%`, width:`${endPct - startPct}%` }}/>
+        <div className="tr-handle tr-handle-s" style={{ left:`${startPct}%` }} onMouseDown={startDrag('start')}>
+          <div className="tr-handle-pip"/>
+          <div className="tr-handle-label tr-label-top">{secsToTimestamp(startSec)}</div>
+        </div>
+        <div className="tr-handle tr-handle-e" style={{ left:`${endPct}%` }} onMouseDown={startDrag('end')}>
+          <div className="tr-handle-pip"/>
+          <div className="tr-handle-label tr-label-top">{secsToTimestamp(endSec)}</div>
+        </div>
+      </div>
+      <div className="tr-edge-labels">
+        <span>00:00:00</span>
+        <span>{secsToTimestamp(duration)}</span>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════ VIDEO PLAYER PANEL ═══════════════════════
+
+
+
+function extractEmbedId(url: string, platform: Platform): string | null {
+  if (platform === 'twitch') {
+    const m = url.match(/twitch\.tv\/videos?\/([0-9]+)/)
+    return m?.[1] ?? null
+  }
+  const m = url.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/)
+  return m?.[1] ?? null
+}
+
+function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
+  url: string; platform: Platform; duration?: number
+  onDownload: (type: FormatType, quality: string, timeRange: { start: number; end: number }) => void
+  onClose: () => void; t: Translations
+}) {
+  const webviewRef = useRef<any>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef<'start' | 'end' | 'head' | null>(null)
+  const isSeekingRef = useRef(false)
+  const seekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [ready, setReady] = useState(false)
+  const [playing, setPlaying] = useState(true)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [startSec, setStartSec] = useState(0)
+  const [endSec, setEndSec] = useState(duration ?? 0)
+  const [ftype, setFtype] = useState<FormatType>('video')
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null)
+
+  const dur = duration ?? 0
+
+  // Build embed URL — for Twitch, use our local HTTP server so parent=localhost is valid
+  useEffect(() => {
+    if (platform === 'twitch') {
+      const id = extractEmbedId(url, platform)
+      if (!id) { setEmbedUrl(null); return }
+      window.api.getPreviewPort().then(port => {
+        setEmbedUrl(`http://localhost:${port}/?id=${id}`)
+      }).catch(() => {
+        // Fallback if IPC fails
+        setEmbedUrl(`https://player.twitch.tv/?video=${id}&parent=localhost&autoplay=false`)
+      })
+    } else {
+      const id = extractEmbedId(url, platform)
+      setEmbedUrl(id ? `https://www.youtube.com/embed/${id}?autoplay=0&controls=1&rel=0&enablejsapi=1` : null)
+    }
+  }, [url, platform])
+
+  // dom-ready: hide Twitch overlay UI via CSS injection
+  useEffect(() => {
+    const wv = webviewRef.current
+    if (!wv) return
+    const onReady = async () => {
+      setReady(true)
+      // For the Twitch embed player, hide only the subscribe/follow overlay
+      // that appears on top of the video (not the player chrome itself)
+      try {
+        await wv.insertCSS(`
+          html, body { margin: 0 !important; padding: 0 !important; background: #000 !important; }
+          /* Hide subscribe/follow/mature banners that overlay the video */
+          [data-a-target="player-overlay-mature-accept"],
+          [data-test-selector="subscribe-button__subscribe-button"],
+          .channel-info-bar, .top-bar {
+            display: none !important;
+          }
+        `)
+      } catch { /* ignore */ }
+    }
+
+    wv.addEventListener('dom-ready', onReady)
+    return () => wv.removeEventListener('dom-ready', onReady)
+  }, [embedUrl, platform])
+
+  // Poll currentTime — for Twitch via localhost the <video> is inside an iframe,
+  // so we query inside the iframe's contentDocument
+  useEffect(() => {
+    if (!ready) return
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const js = isTwitchLocal
+      ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()`
+      : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
+    const iv = setInterval(async () => {
+      if (isSeekingRef.current) return
+      try {
+        const ct = await webviewRef.current?.executeJavaScript(js)
+        if (typeof ct === 'number' && ct >= 0) setCurrentTime(ct)
+      } catch { /* ignore */ }
+    }, 500)
+    return () => clearInterval(iv)
+  }, [ready, embedUrl])
+
+  const seekTo = async (sec: number) => {
+    const wv = webviewRef.current
+    if (!wv) return
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const s = Math.round(sec)
+    const js = isTwitchLocal
+      ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.seek==='function'){window.__twitchPlayer.seek(${s});return;}}catch(e){}})()`
+      : `(()=>{try{
+          const mp=document.getElementById('movie_player');
+          if(mp&&typeof mp.seekTo==='function'){mp.seekTo(${s},true);return;}
+          const v=document.querySelector('video');
+          if(v){v.currentTime=${s};return;}
+        }catch(e){}})()`
+    try { await wv.executeJavaScript(js) } catch {}
+  }
+
+  /** Seek + заморозить polling чтобы playhead не прыгал обратно */
+  const seekWithLock = (sec: number) => {
+    if (seekTimerRef.current) clearTimeout(seekTimerRef.current)
+    isSeekingRef.current = true
+    setCurrentTime(sec)
+    seekTo(sec)
+    seekTimerRef.current = setTimeout(() => { isSeekingRef.current = false }, 4000)
+  }
+
+  const togglePlay = async () => {
+    const wv = webviewRef.current
+    if (!wv) return
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const willPause = playing
+    const js = isTwitchLocal
+      ? `(()=>{try{if(window.__twitchPlayer){${willPause}?window.__twitchPlayer.pause():window.__twitchPlayer.play();}return 'ok'}catch(e){return 'err'}})()`
+      : `(()=>{try{
+          const mp=document.getElementById('movie_player');
+          if(mp){${willPause}?mp.pauseVideo():mp.playVideo();return 'ok';}
+          const v=document.querySelector('video');
+          if(v){${willPause}?v.pause():v.play();return 'ok';}
+          return 'noop'
+        }catch(e){return 'err'}})()`
+    try { await wv.executeJavaScript(js) } catch {}
+    setPlaying(p => !p)
+  }
+
+  const getTime = async (): Promise<number> => {
+    try {
+      const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+      const js = isTwitchLocal
+        ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()`
+        : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?v.currentTime:-1}catch(e){return -1}})()`
+      const ct = await webviewRef.current?.executeJavaScript(js)
+      return typeof ct === 'number' && ct >= 0 ? ct : -1
+    } catch { return -1 }
+  }
+
+  const markStart = async () => {
+    const ct = await getTime()
+    if (ct < 0) return
+    const s = Math.floor(ct)
+    setStartSec(s)
+    if (endSec <= s) setEndSec(Math.min(s + 30, dur || s + 30))
+  }
+
+  const markEnd = async () => {
+    const ct = await getTime()
+    if (ct < 0) return
+    const e = Math.ceil(ct)
+    setEndSec(e)
+    if (startSec >= e) setStartSec(Math.max(0, e - 30))
+  }
+
+  // ── Drag logic for timeline handles ──
+  const posToSec = (clientX: number): number => {
+    if (!trackRef.current || dur <= 0) return 0
+    const rect = trackRef.current.getBoundingClientRect()
+    return Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * dur)
+  }
+
+  const startDrag = (handle: 'start' | 'end' | 'head') => (e: React.MouseEvent) => {
+    e.preventDefault()
+    draggingRef.current = handle
+    const onMove = (me: MouseEvent) => {
+      const sec = posToSec(me.clientX)
+      if (draggingRef.current === 'start') {
+        setStartSec(Math.max(0, Math.min(sec, endSec - 1)))
+      } else if (draggingRef.current === 'end') {
+        setEndSec(Math.min(dur || 999999, Math.max(sec, startSec + 1)))
+      } else {
+        // dragging playhead — seek
+        seekWithLock(sec)
+      }
+    }
+    const onUp = () => {
+      draggingRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const clickTrack = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (draggingRef.current || dur <= 0) return
+    const sec = posToSec(e.clientX)
+    seekWithLock(sec)
+  }
+
+  const pct = (v: number) => dur > 0 ? Math.max(0, Math.min(100, (v / dur) * 100)) : 0
+  const selectedDur = Math.max(0, endSec - startSec)
+  const dlQuality = ftype === 'audio' ? 'mp3_best' : (platform === 'twitch' ? 'source' : '1080')
+
+  if (!embedUrl) return null
+
+  return (
+    <div className="vp-panel">
+      {/* Header */}
+      <div className="vp-head">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span className="vp-title">{t.vp_title}</span>
+        <span className="vp-cur">{secsToTimestamp(currentTime)}</span>
+        <button className="vp-close" onClick={onClose}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      {/* Embedded player */}
+      <div className="vp-player-wrap">
+        {!ready && <div className="vp-loading"><span className="spin"/><span>{t.vp_loading}</span></div>}
+        <webview ref={webviewRef} src={embedUrl} className="vp-webview"
+          partition="persist:preview"
+          allowpopups={false}
+          useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+          style={{ visibility: ready ? 'visible' : 'hidden', width: '100%', height: '100%' }}/>
+      </div>
+
+      {/* Timeline — drag handles + playhead */}
+      <div className="vp-timeline">
+        <div className="vp-tl-info">
+          <button className="vp-play-ctrl" onClick={togglePlay} disabled={!ready} title={playing ? 'Pause' : 'Play'}>
+            {playing
+              ? <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>
+              : <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            }
+          </button>
+          <span className="vp-tl-cur">{secsToTimestamp(currentTime)}</span>
+          <span className="vp-tl-sel-info">
+            <button className="vp-ts" onClick={() => seekTo(startSec)} title={t.vp_seek_hint}>{secsToTimestamp(startSec)}</button>
+            <span className="vp-tl-arrow">→</span>
+            <button className="vp-ts" onClick={() => seekTo(endSec)} title={t.vp_seek_hint}>{secsToTimestamp(endSec)}</button>
+            {dur > 0 && <span className="vp-sel-dur">{secsToTimestamp(selectedDur)}</span>}
+          </span>
+          {dur > 0 && <span className="vp-tl-total">{secsToTimestamp(dur)}</span>}
+        </div>
+
+        <div className="vp-tl-track" ref={trackRef} onClick={clickTrack}>
+          <div className="vp-tl-bg"/>
+          {/* Selected range fill */}
+          <div className="vp-tl-sel" style={{ left:`${pct(startSec)}%`, width:`${pct(endSec)-pct(startSec)}%` }}/>
+          {/* Playhead */}
+          <div className="vp-tl-head" style={{ left:`${pct(currentTime)}%` }} onMouseDown={startDrag('head')}/>
+          {/* Start handle */}
+          <div className="vp-tl-handle vp-tl-handle-s" style={{ left:`${pct(startSec)}%` }} onMouseDown={startDrag('start')} onClick={e => e.stopPropagation()}>
+            <div className="vp-tl-handle-pip vp-pip-s"/>
+            <div className="vp-tl-handle-label">{secsToTimestamp(startSec)}</div>
+          </div>
+          {/* End handle */}
+          <div className="vp-tl-handle vp-tl-handle-e" style={{ left:`${pct(endSec)}%` }} onMouseDown={startDrag('end')} onClick={e => e.stopPropagation()}>
+            <div className="vp-tl-handle-pip vp-pip-e"/>
+            <div className="vp-tl-handle-label vp-label-right">{secsToTimestamp(endSec)}</div>
+          </div>
+        </div>
+
+        <div className="vp-tl-edge-labels">
+          <span>00:00:00</span>
+          {dur > 0 && <span>{secsToTimestamp(dur)}</span>}
+        </div>
+      </div>
+
+      {/* Mark + download row */}
+      <div className="vp-footer">
+        <button className="vp-mark-btn vp-mark-s" onClick={markStart} disabled={!ready}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="4" y="3" width="3" height="18" rx="1" fill="currentColor" stroke="none"/><line x1="7" y1="12" x2="20" y2="12"/></svg>
+          {t.vp_mark_start}
+        </button>
+        <button className="vp-mark-btn vp-mark-e" onClick={markEnd} disabled={!ready}>
+          {t.vp_mark_end}
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="17" y="3" width="3" height="18" rx="1" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="17" y2="12"/></svg>
+        </button>
+        <div className="vp-fmt-row">
+          <button className={`vp-fmt-tab ${ftype==='video'?'vp-fmt-on':''}`} onClick={() => setFtype('video')}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            Video
+          </button>
+          <button className={`vp-fmt-tab ${ftype==='audio'?'vp-fmt-on':''}`} onClick={() => setFtype('audio')}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            Audio
+          </button>
+        </div>
+        <button className="vp-dl-btn" disabled={selectedDur <= 0}
+          onClick={() => onDownload(ftype, dlQuality, { start: startSec, end: dur > 0 && endSec >= dur ? -1 : endSec })}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
+          {t.vp_download}
+          <span className="vp-dl-range">{secsToTimestamp(startSec)} → {secsToTimestamp(endSec)}</span>
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ═══════════════════════ WINDOW API TYPE ═══════════════════════
@@ -163,12 +548,16 @@ declare global {
       detectBrowser: () => Promise<string | null>
       checkYtSession: () => Promise<{ loggedIn: boolean }>
       extractBrowserCookies: () => Promise<{ success: boolean; error?: string }>
+      checkVkSession: () => Promise<{ loggedIn: boolean }>
+      extractVkCookies: () => Promise<{ success: boolean; error?: string }>
       fetchVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>
       fetchPlaylistInfo: (url: string) => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
       fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips') => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
-      startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string }) => Promise<{ success: boolean; error?: string }>
+      startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number }) => Promise<{ success: boolean; error?: string }>
       cancelDownload: (id: string) => Promise<{ success: boolean }>
       openFolder: (path: string) => Promise<void>
+      openExternal: (url: string) => Promise<void>
+      getPreviewPort: () => Promise<number>
       onDownloadProgress: (cb: (d: { id: string; progress: number; speed: string; eta: string }) => void) => () => void
       onDownloadComplete: (cb: (d: { id: string }) => void) => () => void
       onDownloadError: (cb: (d: { id: string; error: string }) => void) => () => void
@@ -254,7 +643,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
           <span className={`lang-opt ${lang==='ru'?'lang-opt-on':''}`}>RU</span>
         </button>
         <div className="sb-status-row"><span className="sb-dot"/><span className="sb-ready">{t.status_ready}</span></div>
-        <div className="sb-version">v1.0.2</div>
+        <div className="sb-version">v1.0.4</div>
       </div>
     </aside>
   )
@@ -262,21 +651,37 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
 
 // ═══════════════════════ URL INPUT ═══════════════════════
 
+/** Если введён просто ник (без http и точек) — считаем Twitch-никнеймом */
+function normalizeTwitchInput(val: string): string {
+  const v = val.trim()
+  if (!v) return v
+  if (v.startsWith('http://') || v.startsWith('https://')) return v
+  // Содержит точку — скорее всего домен, добавляем https://
+  if (v.includes('.')) return `https://${v}`
+  // Чистый никнейм — подставляем Twitch
+  return `https://www.twitch.tv/${v}`
+}
+
 function UrlInput({ onFetch, loading, t, platform, onPlatformChange }: {
   onFetch: (url: string) => void; loading: boolean; t: Translations; platform: Platform; onPlatformChange: (p: Platform) => void
 }) {
   const [url, setUrl] = useState('')
-  const submit = () => { if (url.trim() && !loading) onFetch(url.trim()) }
+  const submit = () => {
+    if (!url.trim() || loading) return
+    const normalized = normalizeTwitchInput(url.trim())
+    if (normalized !== url) setUrl(normalized)
+    onFetch(normalized)
+  }
   const handleChange = (val: string) => { setUrl(val); const d = detectPlatform(val); if (d !== platform) onPlatformChange(d) }
   const pasteFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText()
       handleChange(text)
-      if (text.includes('youtube.com') || text.includes('youtu.be') || text.includes('music.youtube') || text.includes('twitch.tv'))
-        setTimeout(() => onFetch(text.trim()), 80)
+      if (text.includes('youtube.com') || text.includes('youtu.be') || text.includes('music.youtube') || text.includes('twitch.tv') || text.includes('vk.com') || text.includes('vkvideo.ru'))
+        setTimeout(() => onFetch(normalizeTwitchInput(text.trim())), 80)
     } catch { /* blocked */ }
   }
-  const placeholder = platform === 'twitch' ? 'https://twitch.tv/channelname  or  twitch.tv/videos/...' : 'https://youtube.com/watch?v=...'
+  const placeholder = platform === 'twitch' ? 'simfonira  or  twitch.tv/videos/...' : platform === 'vk' ? 'https://vk.com/video-123456_789  or  vkvideo.ru/...' : 'https://youtube.com/watch?v=...'
   return (
     <div className="url-section">
       <div className="platform-switcher">
@@ -288,6 +693,10 @@ function UrlInput({ onFetch, loading, t, platform, onPlatformChange }: {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
           Twitch
         </button>
+        <button className={`platform-btn ${platform==='vk'?'platform-btn-on platform-btn-vk':''}`} onClick={() => onPlatformChange('vk')}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M21.3 0H2.7C1.2 0 0 1.2 0 2.7v18.6C0 22.8 1.2 24 2.7 24h18.6c1.5 0 2.7-1.2 2.7-2.7V2.7C24 1.2 22.8 0 21.3 0zm-1.6 16.9h-2c-.8 0-1-.6-2.3-1.9-1.1-1.2-1.6-1.3-1.9-1.3-.4 0-.5.1-.5.7v1.7c0 .5-.2.8-1.4.8-2 0-4.2-1.2-5.8-3.5C4.3 10.6 3.6 8 3.6 7.5c0-.3.1-.5.7-.5h2c.5 0 .7.2.9.8.9 2.5 2.5 4.7 3.1 4.7.2 0 .3-.1.3-.7V9c-.1-1.5-.9-1.6-.9-2.1 0-.3.2-.5.6-.5h3.1c.4 0 .6.2.6.8v3.5c0 .4.2.6.3.6.2 0 .4-.1.8-.5 1.3-1.5 2.2-3.7 2.2-3.7.1-.3.4-.6.9-.6h2c.6 0 .7.3.6.8-.3 1.2-2.8 4.8-2.8 4.8-.2.3-.3.5 0 .9.2.3.9.9 1.4 1.5.9.9 1.5 1.7 1.7 2.2.2.5-.1.8-.6.8z"/></svg>
+          VK
+        </button>
       </div>
       <div className="section-eyebrow"><span className="eyebrow-line"/><span>{t.paste_url}</span><span className="eyebrow-line"/></div>
       <div className="url-row">
@@ -298,7 +707,7 @@ function UrlInput({ onFetch, loading, t, platform, onPlatformChange }: {
           {loading ? <span className="spin"/> : <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>{t.btn_fetch}</span></>}
         </button>
       </div>
-      <p className="url-hint">{platform==='twitch' ? t.twitch_hint : t.url_hint}</p>
+      <p className="url-hint">{platform==='twitch' ? t.twitch_hint : platform==='vk' ? t.vk_hint : t.url_hint}</p>
     </div>
   )
 }
@@ -331,17 +740,25 @@ function VideoInfoCard({ info, loading, t }: { info: VideoInfo | null; loading: 
 
 // ═══════════════════════ FORMAT SELECTOR ═══════════════════════
 
-function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, initVq, initAq, onFormatChange, playlist, platform, availableQualities }: {
-  onDownload: (type: FormatType, q: string) => void; onDownloadAll?: (type: FormatType, q: string) => void
+function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, initVq, initAq, onFormatChange, playlist, platform, availableQualities, duration, onOpenPlayer }: {
+  onDownload: (type: FormatType, q: string, timeRange?: { start: number; end: number }) => void; onDownloadAll?: (type: FormatType, q: string) => void
   disabled: boolean; t: Translations; initType: FormatType; initVq: VideoQuality; initAq: AudioQuality
   onFormatChange: (type: FormatType, vq: VideoQuality, aq: AudioQuality) => void
   playlist?: PlaylistEntry[] | null; platform?: Platform
-  availableQualities?: VideoQuality[]
+  availableQualities?: VideoQuality[]; duration?: number
+  onOpenPlayer?: () => void
 }) {
   const [ftype, setFtype] = useState<FormatType>(initType)
   const [vq, setVq] = useState<VideoQuality>(initVq)
   const [aq, setAq] = useState<AudioQuality>(initAq)
   const [tq, setTq] = useState<TwitchQuality>('source')
+  const [useTimeRange, setUseTimeRange] = useState(false)
+  const [trStart, setTrStart] = useState(0)
+  const [trEnd, setTrEnd] = useState(duration ?? 0)
+
+  useEffect(() => {
+    if (duration && duration > 0) setTrEnd(duration)
+  }, [duration])
   const isTwitch = platform === 'twitch'
   const setFtypeAndSave = (v: FormatType) => { setFtype(v); onFormatChange(v, vq, aq) }
   const setVqAndSave = (v: VideoQuality) => { setVq(v); onFormatChange(ftype, v, aq) }
@@ -369,7 +786,12 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, init
 
   const TQ = [{ v:'source' as TwitchQuality, l:'Source', b:'MAX' },{ v:'1080p60' as TwitchQuality, l:'1080p', b:'60fps' },{ v:'720p60' as TwitchQuality, l:'720p', b:'60fps' },{ v:'480p' as TwitchQuality, l:'480p', b:'' },{ v:'360p' as TwitchQuality, l:'360p', b:'' },{ v:'160p' as TwitchQuality, l:'160p', b:'' }]
   const AQ = [{ v:'mp3_best' as AudioQuality, f:'MP3', s:'Best' },{ v:'mp3_192' as AudioQuality, f:'MP3', s:'192 kbps' },{ v:'mp3_128' as AudioQuality, f:'MP3', s:'128 kbps' },{ v:'m4a' as AudioQuality, f:'M4A', s:'Best' }]
-  const go = () => onDownload(ftype, isTwitch ? (ftype==='video'?tq:'mp3_best') : (ftype==='video'?safeVq:aq))
+  const go = () => {
+    const timeRange = (useTimeRange && isTwitch && duration && duration > 0)
+      ? { start: trStart, end: trEnd >= duration ? -1 : trEnd }
+      : undefined
+    onDownload(ftype, isTwitch ? (ftype==='video'?tq:'mp3_best') : (ftype==='video'?safeVq:aq), timeRange)
+  }
   const ql = isTwitch ? (ftype==='video'?TQ.find(q=>q.v===tq)?.l:'MP3') : (ftype==='video'?VQ.find(q=>q.v===safeVq)?.l:AQ.find(q=>q.v===aq)?.s)
 
   return (
@@ -387,6 +809,31 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, init
          : isTwitch ? TQ.map(q=><button key={q.v} className={`q-btn ${tq===q.v?'q-btn-on':''}`} onClick={()=>setTq(q.v)}><span className="q-main">{q.l}</span>{q.b&&<span className="q-badge">{q.b}</span>}</button>)
          : VQ.map(q=><button key={q.v} className={`q-btn ${safeVq===q.v?'q-btn-on':''}`} onClick={()=>setVqAndSave(q.v)}><span className="q-main">{q.l}</span>{q.b&&<span className="q-badge">{q.b}</span>}</button>)}
       </div>
+      {(platform === 'twitch' || platform === 'youtube') && onOpenPlayer && (
+        <button className="vp-open-btn" onClick={onOpenPlayer}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          {t.vp_open_player}
+        </button>
+      )}
+      {isTwitch && !onOpenPlayer && (
+        <div className="time-range-section">
+          <div className="time-range-header">
+            <button className={`time-range-toggle ${useTimeRange?'time-range-toggle-on':''}`} onClick={()=>setUseTimeRange(v=>!v)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              <span>{t.time_range_toggle}</span>
+              <svg className={`tr-arrow${useTimeRange?' tr-arrow-open':''}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+          {useTimeRange && (
+            <div className="time-range-body">
+              {duration && duration > 0
+                ? <TimeRangePicker duration={duration} startSec={trStart} endSec={trEnd} onChange={(s,e)=>{setTrStart(s);setTrEnd(e)}}/>
+                : <p className="tr-no-dur">{t.time_range_no_duration}</p>
+              }
+            </div>
+          )}
+        </div>
+      )}
       <button className="dl-now-btn" onClick={go} disabled={disabled}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
         <span>{ftype==='audio'?t.btn_download_audio:t.btn_download_video}</span>
@@ -413,26 +860,36 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
 }) {
   const [tab, setTab] = useState<'vods'|'clips'>('vods')
   const [allEntries, setAllEntries] = useState<Record<string, PlaylistEntry[]>>({ vods:[], clips:[] })
-  const [loading, setLoading] = useState(false)
+  const [loadingTab, setLoadingTab] = useState<'vods'|'clips'|null>(null)
   const loadedRef = useRef<Record<string,boolean>>({})
+  // Счётчик поколений: при смене канала инкрементируется — старые ответы игнорируются
+  const genRef = useRef(0)
   const [selected, setSelected] = useState<Record<string, TwitchSelected>>({})
+  const [searchQuery, setSearchQuery] = useState('')
 
   const load = async (type: 'vods'|'clips') => {
     if (loadedRef.current[type]) return
-    loadedRef.current[type] = true  // помечаем сразу — нет stale closure
-    setLoading(true)
+    loadedRef.current[type] = true
+    const myGen = genRef.current  // захватываем текущее поколение
+    setLoadingTab(type)
     const r = await window.api?.fetchTwitchChannel(channelName, type)
+    // Если канал сменился пока ждали — выбрасываем устаревший ответ
+    if (genRef.current !== myGen) return
     setAllEntries(p => ({...p, [type]: r?.success && r.entries ? r.entries : []}))
-    setLoading(false)
+    setLoadingTab(null)
   }
 
   useEffect(() => {
-    loadedRef.current = {}  // сбрасываем кеш при смене канала
+    genRef.current++            // инвалидируем все in-flight запросы старого канала
+    loadedRef.current = {}
     setAllEntries({ vods:[], clips:[] })
+    setLoadingTab(null)
+    setSearchQuery('')
     setTab('vods')
     load('vods')
   }, [channelName])
   const switchTab = (type: 'vods'|'clips') => { setTab(type); load(type) }
+  const loading = loadingTab !== null
 
   const toggleSelect = (entry: PlaylistEntry, url: string) => {
     setSelected(p => {
@@ -442,7 +899,9 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   }
 
   const selectedList = Object.values(selected)
-  const entries = allEntries[tab]
+  const entries = searchQuery.trim()
+    ? allEntries[tab].filter(e => e.title?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : allEntries[tab]
 
   return (
     <div className="twitch-browser">
@@ -451,6 +910,10 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="#9146FF"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
           <span>{channelName}</span>
         </div>
+        <button className="twitch-open-btn" onClick={() => window.api?.openExternal(`https://www.twitch.tv/${channelName}/videos`)} title="Open on Twitch">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Twitch
+        </button>
         <div className="twitch-tabs">
           <button className={`twitch-tab ${tab==='vods'?'twitch-tab-on':''}`} onClick={() => switchTab('vods')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -470,6 +933,20 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
       </div>
 
       {/* Панель выбранных */}
+      <div className="twitch-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input
+          className="twitch-search-input"
+          type="text"
+          placeholder={t.twitch_search_placeholder}
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+        {searchQuery && <button className="twitch-search-clear" onClick={() => setSearchQuery('')}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>}
+      </div>
+
       {selectedList.length > 0 && (
         <div className="twitch-selection-bar">
           <span className="twitch-sel-count">
@@ -506,6 +983,9 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
                 </div>
                 <div className="twitch-entry-meta"><span className="twitch-entry-title">{entry.title}</span></div>
                 <svg className="twitch-entry-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+              <button className="twitch-entry-open" onClick={e=>{e.stopPropagation();window.api?.openExternal(videoUrl)}} title="Watch on Twitch">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </button>
             </div>
           )
@@ -635,9 +1115,13 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange,
   const [extractState, setExtractState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
   const [extractError, setExtractError] = useState('')
   const [ytLoggedIn, setYtLoggedIn] = useState(false)
+  const [vkExtractState, setVkExtractState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
+  const [vkExtractError, setVkExtractError] = useState('')
+  const [vkLoggedIn, setVkLoggedIn] = useState(false)
   const cookiesRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { window.api?.checkYtSession().then(r => setYtLoggedIn(r.loggedIn)).catch(()=>{}) }, [])
+  useEffect(() => { window.api?.checkVkSession().then(r => setVkLoggedIn(r.loggedIn)).catch(()=>{}) }, [])
   useEffect(() => { if (highlightCookies && cookiesRef.current) cookiesRef.current.scrollIntoView({ behavior:'smooth', block:'center' }) }, [highlightCookies])
   useEffect(() => setLocal(settings), [settings])
 
@@ -660,6 +1144,13 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange,
     if (r?.success) { setExtractState('ok'); setYtLoggedIn(true) }
     else { setExtractState('fail'); setExtractError(r?.error||'') }
     setTimeout(() => setExtractState('idle'), 5000)
+  }
+  const handleVkExtract = async () => {
+    setVkExtractState('busy'); setVkExtractError('')
+    const r = await window.api?.extractVkCookies()
+    if (r?.success) { setVkExtractState('ok'); setVkLoggedIn(true) }
+    else { setVkExtractState('fail'); setVkExtractError(r?.error||'') }
+    setTimeout(() => setVkExtractState('idle'), 5000)
   }
 
   return (
@@ -691,6 +1182,17 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange,
            : <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>{t.set_extract_cookies}{ytLoggedIn&&<span className="set-extract-browser">✓ signed in</span>}</>}
         </button>
         {extractState==='fail' && extractError && <p className="set-extract-error">{extractError}</p>}
+      </div>
+      <div className="set-group">
+        <div className="set-label">{t.set_extract_vk_cookies}</div>
+        <p className="set-hint">{t.set_extract_vk_cookies_hint}</p>
+        <button className={`set-extract-btn ${vkExtractState==='ok'?'set-extract-ok':vkExtractState==='fail'?'set-extract-fail':''}`} onClick={handleVkExtract} disabled={vkExtractState==='busy'}>
+          {vkExtractState==='busy' ? <><span className="spin"/>{t.set_extracting}</>
+           : vkExtractState==='ok' ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>{t.set_extract_vk_ok}</>
+           : vkExtractState==='fail' ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{t.set_extract_vk_fail}</>
+           : <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M21.3 0H2.7C1.2 0 0 1.2 0 2.7v18.6C0 22.8 1.2 24 2.7 24h18.6c1.5 0 2.7-1.2 2.7-2.7V2.7C24 1.2 22.8 0 21.3 0zm-1.6 16.9h-2c-.8 0-1-.6-2.3-1.9-1.1-1.2-1.6-1.3-1.9-1.3-.4 0-.5.1-.5.7v1.7c0 .5-.2.8-1.4.8-2 0-4.2-1.2-5.8-3.5C4.3 10.6 3.6 8 3.6 7.5c0-.3.1-.5.7-.5h2c.5 0 .7.2.9.8.9 2.5 2.5 4.7 3.1 4.7.2 0 .3-.1.3-.7V9c-.1-1.5-.9-1.6-.9-2.1 0-.3.2-.5.6-.5h3.1c.4 0 .6.2.6.8v3.5c0 .4.2.6.3.6.2 0 .4-.1.8-.5 1.3-1.5 2.2-3.7 2.2-3.7.1-.3.4-.6.9-.6h2c.6 0 .7.3.6.8-.3 1.2-2.8 4.8-2.8 4.8-.2.3-.3.5 0 .9.2.3.9.9 1.4 1.5.9.9 1.5 1.7 1.7 2.2.2.5-.1.8-.6.8z"/></svg>{t.set_extract_vk_cookies}{vkLoggedIn&&<span className="set-extract-browser">✓ signed in</span>}</>}
+        </button>
+        {vkExtractState==='fail' && vkExtractError && <p className="set-extract-error">{vkExtractError}</p>}
       </div>
       <div className="set-group">
         <div className="set-label">{t.set_auto_update}</div>
@@ -850,6 +1352,7 @@ export default function App() {
   const [playlistLoading, setPlaylistLoading] = useState(false)
   const [platform, setPlatform] = useState<Platform>('youtube')
   const [twitchChannel, setTwitchChannel] = useState<string | null>(null)
+  const [showPlayer, setShowPlayer] = useState(false)
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const urlRef = useRef('')
@@ -938,7 +1441,7 @@ export default function App() {
 
   const handleFetch = useCallback(async (url: string) => {
     if (!window.api || !ready) return
-    setFetching(true); setFetchErr(''); setVideoInfo(null); setPlaylist(null); setTwitchChannel(null)
+    setFetching(true); setFetchErr(''); setVideoInfo(null); setPlaylist(null); setTwitchChannel(null); setShowPlayer(false)
     urlRef.current = url
     setPlatform(detectPlatform(url))
     if (isTwitchChannelUrl(url)) { setFetching(false); setTwitchChannel(getTwitchChannelName(url)); return }
@@ -956,16 +1459,27 @@ export default function App() {
     } else { setFetchErr(r.error || 'Failed to fetch info') }
   }, [ready])
 
-  const handleDownload = useCallback(async (type: FormatType, quality: string) => {
+  const handleDownload = useCallback(async (type: FormatType, quality: string, timeRange?: { start: number; end: number }) => {
     if (!videoInfo || !window.api) return
     const id = genId()
     const isTwitch = platform === 'twitch'
-    const formatArgs = isTwitch ? getTwitchFormatArgs(type, quality as TwitchQuality) : getFormatArgs(type, quality as VideoQuality | AudioQuality)
-    const formatLabel = isTwitch ? getTwitchFormatLabel(type, quality as TwitchQuality) : getFormatLabel(type, quality as VideoQuality | AudioQuality)
+    let formatArgs = isTwitch ? getTwitchFormatArgs(type, quality as TwitchQuality) : getFormatArgs(type, quality as VideoQuality | AudioQuality)
+    let sectionDuration: number | undefined
+    if (timeRange) {
+      const endStr = timeRange.end >= 0 ? secsToTimestamp(timeRange.end) : 'inf'
+      formatArgs = [...formatArgs, '--download-sections', `*${secsToTimestamp(timeRange.start)}-${endStr}`]
+      sectionDuration = timeRange.end >= 0
+        ? timeRange.end - timeRange.start
+        : (videoInfo.duration ?? 0) - timeRange.start
+    }
+    const baseLabel = isTwitch ? getTwitchFormatLabel(type, quality as TwitchQuality) : getFormatLabel(type, quality as VideoQuality | AudioQuality)
+    const formatLabel = timeRange
+      ? `${baseLabel} [${secsToTimestamp(timeRange.start)}→${timeRange.end >= 0 ? secsToTimestamp(timeRange.end) : 'end'}]`
+      : baseLabel
     setDownloads(p => [{ id, url:urlRef.current, title:videoInfo.title, thumbnail:videoInfo.thumbnail, formatLabel, status:'pending', progress:0, createdAt:Date.now() }, ...p])
     let downloadUrl = urlRef.current
     if (!isTwitch && downloadUrl.includes('music.youtube.com') && type==='video') downloadUrl = downloadUrl.replace('music.youtube.com','www.youtube.com')
-    const r = await window.api.startDownload({ id, url:downloadUrl, formatArgs, downloadPath:settings.downloadPath })
+    const r = await window.api.startDownload({ id, url:downloadUrl, formatArgs, downloadPath:settings.downloadPath, sectionDuration })
     if (!r.success) setDownloads(p => p.map(x => x.id===id ? {...x,status:'error',error:r.error} : x))
   }, [videoInfo, settings.downloadPath, platform])
 
@@ -1052,7 +1566,20 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <FormatSelector key="fmt-selector" onDownload={handleDownload} onDownloadAll={handleDownloadAll} playlist={playlist} platform={platform} disabled={!videoInfo||fetching} t={t} initType={initFmt.type} initVq={initFmt.vq} initAq={initFmt.aq} onFormatChange={(type,vq,aq)=>saveState({formatType:type,videoQuality:vq,audioQuality:aq})} availableQualities={videoInfo ? getAvailableQualities(videoInfo.formats) : undefined}/>
+                  <FormatSelector key="fmt-selector" onDownload={handleDownload} onDownloadAll={handleDownloadAll} playlist={playlist} platform={platform} disabled={!videoInfo||fetching} t={t} initType={initFmt.type} initVq={initFmt.vq} initAq={initFmt.aq} onFormatChange={(type,vq,aq)=>saveState({formatType:type,videoQuality:vq,audioQuality:aq})} availableQualities={videoInfo ? getAvailableQualities(videoInfo.formats) : undefined} duration={videoInfo?.duration} onOpenPlayer={() => setShowPlayer(v => !v)}/>
+                {showPlayer && videoInfo && (
+                  <VideoPlayerPanel
+                    url={urlRef.current}
+                    platform={platform}
+                    duration={videoInfo.duration}
+                    onDownload={(type, quality, timeRange) => {
+                      setShowPlayer(false)
+                      handleDownload(type, quality, timeRange)
+                    }}
+                    onClose={() => setShowPlayer(false)}
+                    t={t}
+                  />
+                )}
                 </>
               )}
 

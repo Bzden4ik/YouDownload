@@ -7,7 +7,7 @@ export interface PersistedState {
   lang: 'en' | 'ru'
   theme: 'fleet' | 'apathy'
   formatType: 'video' | 'audio'
-  videoQuality: '2160' | '1440' | '1080' | '720' | '480' | '360'
+  videoQuality: '2160' | '1440' | '1080' | '720' | '480' | '360' | '240' | '144'
   audioQuality: 'mp3_best' | 'mp3_192' | 'mp3_128' | 'm4a'
   downloadPath: string
   concurrentDownloads: number

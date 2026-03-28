@@ -27,12 +27,16 @@ const api = {
   detectBrowser: () => ipcRenderer.invoke('detect-browser'),
   checkYtSession:        () => ipcRenderer.invoke('check-yt-session'),
   extractBrowserCookies: () => ipcRenderer.invoke('extract-browser-cookies'),
+  checkVkSession:        () => ipcRenderer.invoke('check-vk-session'),
+  extractVkCookies:      () => ipcRenderer.invoke('extract-vk-cookies'),
   fetchVideoInfo: (url: string) => ipcRenderer.invoke('fetch-video-info', url),
   fetchPlaylistInfo: (url: string) => ipcRenderer.invoke('fetch-playlist-info', url),
   fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips') => ipcRenderer.invoke('fetch-twitch-channel', channelName, type),
   startDownload:  (p: unknown) => ipcRenderer.invoke('start-download', p),
   cancelDownload: (id: string) => ipcRenderer.invoke('cancel-download', id),
   openFolder:     (path: string) => ipcRenderer.invoke('open-folder', path),
+  openExternal:    (url: string) => ipcRenderer.invoke('open-external', url),
+  getPreviewPort:  () => ipcRenderer.invoke('get-preview-port'),
 
   // Updates
   checkForUpdates:         () => ipcRenderer.invoke('check-for-updates'),

@@ -5,6 +5,7 @@ const fs = require("fs");
 const child_process = require("child_process");
 const Store = require("electron-store");
 const YTDlpWrapLib = require("yt-dlp-wrap");
+const http = require("http");
 const YTDlpWrap = YTDlpWrapLib.default ?? YTDlpWrapLib;
 const store = new Store({
   defaults: {
@@ -36,6 +37,25 @@ function getYtDlpPath() {
 }
 function getWritableCookiesPath() {
   return path.join(electron.app.getPath("userData"), "cookies.txt");
+}
+function getVkCookiesPath() {
+  return path.join(electron.app.getPath("userData"), "vk-cookies.txt");
+}
+function normalizeVkUrl(url) {
+  if (!url.includes("vk.com") && !url.includes("vkvideo.ru")) return url;
+  try {
+    const u = new URL(url);
+    const z = u.searchParams.get("z");
+    if (z) {
+      const m = z.match(/^(video-?\d+_\d+)(?:\/([a-f0-9]+))?/);
+      if (m) {
+        const base = `https://vk.com/${m[1]}`;
+        return m[2] ? `${base}?access_key=${m[2]}` : base;
+      }
+    }
+  } catch {
+  }
+  return url;
 }
 function ensureCookiesWritable() {
   const src = path.join(getYtDlpPath(), "..", "cookies.txt");
@@ -90,41 +110,119 @@ async function tryUpdateYtDlp(p) {
 let ytDlpWrap = null;
 const activeDownloads = /* @__PURE__ */ new Map();
 let mainWindow = null;
-function findNodePath() {
-  const candidates = ["C:\\Program Files\\nodejs\\node.exe", "C:\\Program Files (x86)\\nodejs\\node.exe"];
-  const found = candidates.find((p) => fs.existsSync(p));
-  if (found) return found;
+let previewServerPort = 0;
+function startPreviewServer() {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", `http://localhost`);
+    const videoId = url.searchParams.get("id") ?? "";
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
+  #twitch-player { width: 100vw; height: 100vh; }
+</style>
+</head><body>
+<div id="twitch-player"></div>
+<script src="https://player.twitch.tv/js/embed/v1.js"><\/script>
+<script>
+  var player = new Twitch.Player("twitch-player", {
+    video: "${videoId}",
+    parent: ["localhost"],
+    autoplay: true,
+    muted: false,
+    width: "100%",
+    height: "100%"
+  });
+  window.__twitchPlayer = player;
+  player.addEventListener(Twitch.Player.READY, function() {
+    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 300);
+    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 1000);
+  });
+<\/script>
+</body></html>`;
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+  });
+  server.listen(0, "127.0.0.1", () => {
+    const addr = server.address();
+    previewServerPort = addr.port;
+  });
+}
+function injectTwitchOverrideCSS(wc) {
   try {
-    return child_process.execSync("where node", { encoding: "utf8", timeout: 3e3 }).split("\n")[0].trim() || null;
+    const css = `
+      /* Hide subscribe/follow/mature overlays in Twitch embed */
+      .player-overlay-background,
+      .recommendations-overlay,
+      .content-overlay-gate,
+      .click-handler ~ .channel-info-bar,
+      .top-bar, .channel-info-bar,
+      [data-a-target="subscribe-button__subscribe-button"],
+      [data-a-target="follow-button"],
+      [data-test-selector="subscribe-button__subscribe-button"],
+      [data-a-target="player-overlay-mature-accept"],
+      .pl-browse-native, .browse-channel-btn-container,
+      .subscribe-cta, .follow-cta,
+      .pl-rec-overlay,
+      .player-overlay__content:not(.video-player__overlay):not(.quality-selector-menu) {
+        display: none !important;
+      }
+    `;
+    for (const frame of wc.mainFrame.framesInSubtree) {
+      if (frame.url?.includes("player.twitch.tv")) {
+        frame.executeJavaScript(`
+          (() => {
+            if (document.getElementById('_yd_twitch_fix')) return;
+            const s = document.createElement('style');
+            s.id = '_yd_twitch_fix';
+            s.textContent = ${JSON.stringify(css)};
+            (document.head || document.documentElement).appendChild(s);
+          })();
+        `).catch(() => {
+        });
+      }
+    }
   } catch {
-    return null;
   }
 }
+electron.ipcMain.handle("get-preview-port", () => previewServerPort);
 function getBaseArgs(cookiesFromBrowser, cookiesFile, url) {
   const explicit = cookiesFile && fs.existsSync(cookiesFile) ? cookiesFile : null;
   const writable = fs.existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null;
   const activeCookies = explicit ?? writable;
   const isTwitch = url?.includes("twitch.tv") ?? false;
+  const isVK = (url?.includes("vk.com") || url?.includes("vkvideo.ru")) ?? false;
   const isMusicYT = url?.includes("music.youtube.com") ?? false;
   const args = [
     "--retries",
     "3",
     "--fragment-retries",
     "3",
-    "--skip-unavailable-fragments"
+    "--skip-unavailable-fragments",
+    "--remote-components",
+    "ejs:github"
   ];
-  if (!isTwitch) {
-    let playerClient;
+  if (!isTwitch && !isVK) {
     if (isMusicYT) {
-      playerClient = activeCookies ? "android_music" : "ios";
-    } else {
-      playerClient = activeCookies ? "mweb" : "ios,mweb";
+      const playerClient = activeCookies ? "android_music" : "ios";
+      args.push("--extractor-args", `youtube:player_client=${playerClient}`);
+    } else if (!activeCookies) {
+      args.push("--extractor-args", "youtube:player_client=ios");
     }
-    args.push("--extractor-args", `youtube:player_client=${playerClient}`);
-    const nodePath = findNodePath();
-    if (nodePath) args.push("--js-runtimes", `node:${nodePath}`);
   }
-  if (activeCookies) args.push("--cookies", activeCookies);
+  if (isVK) {
+    const vkCookies = fs.existsSync(getVkCookiesPath()) ? getVkCookiesPath() : null;
+    if (vkCookies) {
+      args.push("--cookies", vkCookies);
+    } else if (cookiesFromBrowser && cookiesFromBrowser !== "none") {
+      args.push("--cookies-from-browser", cookiesFromBrowser);
+    }
+  } else if (activeCookies) {
+    args.push("--cookies", activeCookies);
+  }
   return args;
 }
 function createWindow() {
@@ -140,7 +238,7 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     icon,
-    webPreferences: { preload: path.join(__dirname, "../preload/index.js"), contextIsolation: true, nodeIntegration: false, sandbox: false }
+    webPreferences: { preload: path.join(__dirname, "../preload/index.js"), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true }
   });
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
@@ -256,8 +354,44 @@ electron.ipcMain.handle("extract-browser-cookies", async () => {
     return { success: false, error: String(e) };
   }
 });
-electron.ipcMain.handle("fetch-video-info", async (_e, url) => {
+electron.ipcMain.handle("check-vk-session", async () => {
+  const ses = electron.session.fromPartition("persist:vk-cookies");
+  const cookies = await ses.cookies.get({ domain: "vk.com", name: "remixsid" });
+  return { loggedIn: cookies.length > 0 };
+});
+electron.ipcMain.handle("extract-vk-cookies", async () => {
+  const ses = electron.session.fromPartition("persist:vk-cookies");
+  const loginWin = new electron.BrowserWindow({
+    width: 1080,
+    height: 720,
+    title: "YouDownload — Sign in to VK, then close this window",
+    autoHideMenuBar: true,
+    parent: mainWindow ?? void 0,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+  });
+  loginWin.loadURL("https://vk.com");
+  loginWin.show();
+  await new Promise((resolve) => loginWin.on("closed", resolve));
+  try {
+    const vk = await ses.cookies.get({ domain: "vk.com" });
+    if (vk.length === 0) return { success: false, error: "No VK cookies found — make sure you signed in before closing." };
+    const lines = ["# Netscape HTTP Cookie File", ""];
+    for (const c of vk) {
+      const domain = c.domain ?? "";
+      const hostOnly = domain.startsWith(".") ? "TRUE" : "FALSE";
+      const secure = c.secure ? "TRUE" : "FALSE";
+      const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+      lines.push(`${domain}	${hostOnly}	${c.path ?? "/"}	${secure}	${expiry}	${c.name}	${c.value}`);
+    }
+    fs.writeFileSync(getVkCookiesPath(), lines.join("\n"), "utf-8");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+});
+electron.ipcMain.handle("fetch-video-info", async (_e, rawUrl) => {
   if (!ytDlpWrap) return { success: false, error: "yt-dlp not initialized" };
+  const url = normalizeVkUrl(rawUrl);
   try {
     const s = store.get("settings");
     const baseArgs = getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, url);
@@ -315,12 +449,24 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
   if (!ytDlpWrap) return { success: false, error: "yt-dlp not initialized" };
   const s = store.get("settings");
   const outDir = payload.downloadPath || s.downloadPath;
+  payload = { ...payload, url: normalizeVkUrl(payload.url) };
   let formatArgs = payload.formatArgs;
   if (payload.url.includes("music.youtube")) {
     const hasVideoFormat = formatArgs.some((a) => a.includes("bestvideo"));
     if (hasVideoFormat) {
       formatArgs = ["-f", "bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "0"];
     }
+  }
+  const isSectionDownload = formatArgs.includes("--download-sections");
+  let sectionTimer = null;
+  if (isSectionDownload && payload.sectionDuration && payload.sectionDuration > 0) {
+    const startTime = Date.now();
+    const expectedMs = payload.sectionDuration * 1e3 * 1.3;
+    sectionTimer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(elapsed / expectedMs * 95, 95);
+      event.sender.send("download-progress", { id: payload.id, progress: pct, speed: "", eta: "", status: "downloading" });
+    }, 800);
   }
   const args = [
     payload.url,
@@ -337,6 +483,7 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
     activeDownloads.set(payload.id, { emitter, cancelled: false });
     emitter.on("ytDlpEvent", (type, data) => {
       if (type === "download") {
+        if (sectionTimer) return;
         const pct = data.match(/(\d+\.?\d*)%/)?.[1];
         const speed = data.match(/at\s+([\d.]+\s*\S+\/s)/)?.[1];
         const eta = data.match(/ETA\s+([\d:]+)/)?.[1];
@@ -344,11 +491,19 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       }
     });
     emitter.on("error", (err) => {
+      if (sectionTimer) {
+        clearInterval(sectionTimer);
+        sectionTimer = null;
+      }
       const dl = activeDownloads.get(payload.id);
       if (!dl?.cancelled) event.sender.send("download-error", { id: payload.id, error: err.message });
       activeDownloads.delete(payload.id);
     });
     emitter.on("close", () => {
+      if (sectionTimer) {
+        clearInterval(sectionTimer);
+        sectionTimer = null;
+      }
       const dl = activeDownloads.get(payload.id);
       if (!dl?.cancelled) event.sender.send("download-complete", { id: payload.id });
       activeDownloads.delete(payload.id);
@@ -376,6 +531,7 @@ electron.ipcMain.handle("cancel-download", (_e, id) => {
   return { success: true };
 });
 electron.ipcMain.handle("open-folder", (_e, path2) => electron.shell.openPath(path2));
+electron.ipcMain.handle("open-external", (_e, url) => electron.shell.openExternal(url));
 const CURRENT_VERSION = electron.app.getVersion();
 const GITHUB_RELEASES_API = "https://api.github.com/repos/Bzden4ik/YouDownload/releases/latest";
 function fetchJson(url) {
@@ -512,13 +668,60 @@ async function autoRefreshCookies() {
     win.destroy();
   }
 }
+async function autoRefreshVkCookies() {
+  const ses = electron.session.fromPartition("persist:vk-cookies");
+  const existing = await ses.cookies.get({ domain: "vk.com", name: "remixsid" });
+  if (existing.length === 0) return;
+  const win = new electron.BrowserWindow({
+    width: 1,
+    height: 1,
+    show: false,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+  });
+  try {
+    win.loadURL("https://vk.com");
+    await Promise.race([
+      new Promise((resolve) => win.webContents.once("did-finish-load", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 12e3))
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 2e3));
+    const vk = await ses.cookies.get({ domain: "vk.com" });
+    if (vk.length > 0) {
+      const lines = ["# Netscape HTTP Cookie File", ""];
+      for (const c of vk) {
+        const domain = c.domain ?? "";
+        const hostOnly = domain.startsWith(".") ? "TRUE" : "FALSE";
+        const secure = c.secure ? "TRUE" : "FALSE";
+        const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+        lines.push(`${domain}	${hostOnly}	${c.path ?? "/"}	${secure}	${expiry}	${c.name}	${c.value}`);
+      }
+      fs.writeFileSync(getVkCookiesPath(), lines.join("\n"), "utf-8");
+    }
+  } catch {
+  } finally {
+    win.destroy();
+  }
+}
 electron.app.whenReady().then(async () => {
+  electron.session.fromPartition("persist:preview").setPermissionRequestHandler((_wc, permission, callback) => {
+    const allowed = ["media", "autoplay", "fullscreen"];
+    callback(allowed.includes(permission));
+  });
+  electron.app.on("web-contents-created", (_, wc) => {
+    wc.on("did-finish-load", () => injectTwitchOverrideCSS(wc));
+    wc.on("did-frame-finish-load", () => injectTwitchOverrideCSS(wc));
+  });
+  startPreviewServer();
   createWindow();
   ensureCookiesWritable();
   initYtDlp().catch(() => {
   });
-  setTimeout(() => autoRefreshCookies().catch(() => {
-  }), 3e3);
+  setTimeout(() => {
+    autoRefreshCookies().catch(() => {
+    });
+    autoRefreshVkCookies().catch(() => {
+    });
+  }, 3e3);
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });
