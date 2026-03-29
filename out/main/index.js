@@ -1,4 +1,26 @@
 "use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 const electron = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -264,33 +286,68 @@ function injectTwitchOverrideCSS(wc) {
   }
 }
 electron.ipcMain.handle("get-preview-port", () => previewServerPort);
-function getBaseArgs(cookiesFromBrowser, cookiesFile, url) {
+function isSslError(raw) {
+  const l = raw.toLowerCase();
+  return l.includes("eof occurred in violation of protocol") || l.includes("_ssl.c") || l.includes("ssl: eof") || l.includes("connection reset by peer") || l.includes("remotedisconnected") || l.includes("broken pipe") || l.includes("unable to download json metadata") && l.includes("ssl");
+}
+function areCookiesStale() {
+  const p = getWritableCookiesPath();
+  if (!fs.existsSync(p)) return false;
+  return _cookiesStale;
+}
+let _cookiesStale = false;
+function markCookiesStale() {
+  if (!_cookiesStale) {
+    _cookiesStale = true;
+    console.warn("[YouDownload] Cookies marked as stale — falling back to ios client");
+  }
+}
+function getBaseArgs(cookiesFromBrowser, cookiesFile, url, forceClient, sslFallback = false) {
   const explicit = cookiesFile && fs.existsSync(cookiesFile) ? cookiesFile : null;
   const writable = fs.existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null;
-  const activeCookies = explicit ?? writable;
+  const activeCookies = areCookiesStale() ? null : explicit ?? writable;
   const isTwitch = url?.includes("twitch.tv") ?? false;
   const isVK = (url?.includes("vk.com") || url?.includes("vkvideo.ru")) ?? false;
   const isMusicYT = url?.includes("music.youtube.com") ?? false;
   const args = [
     "--retries",
-    "3",
+    isTwitch ? "10" : "3",
     "--fragment-retries",
-    "3",
-    "--skip-unavailable-fragments",
-    "--remote-components",
-    "ejs:github"
+    isTwitch ? "10" : "3",
+    "--skip-unavailable-fragments"
   ];
+  if (isTwitch) {
+    args.push(
+      "--sleep-interval",
+      "1",
+      "--max-sleep-interval",
+      "3",
+      "--socket-timeout",
+      "30"
+    );
+  }
+  if (sslFallback) {
+    args.push("--no-check-certificates");
+  }
   const ffmpegPath = findFfmpeg();
   if (ffmpegPath) {
     const ffmpegDir = path.join(ffmpegPath, "..");
     args.push("--ffmpeg-location", ffmpegDir);
   }
+  const qjsPath = path.join(getYtDlpPath(), "..", "qjs.exe");
+  if (fs.existsSync(qjsPath)) {
+    args.push("--js-runtimes", `quickjs:${qjsPath}`);
+  }
   if (!isTwitch && !isVK) {
-    if (isMusicYT) {
-      const playerClient = activeCookies ? "android_music" : "ios";
+    if (forceClient) {
+      args.push("--extractor-args", `youtube:player_client=${forceClient}`);
+    } else if (isMusicYT) {
+      const playerClient = activeCookies && !areCookiesStale() ? "android_music" : "ios";
       args.push("--extractor-args", `youtube:player_client=${playerClient}`);
-    } else if (!activeCookies) {
-      args.push("--extractor-args", "youtube:player_client=ios");
+    } else if (activeCookies && !areCookiesStale()) {
+      args.push("--extractor-args", "youtube:player_client=tv_embedded");
+    } else {
+      args.push("--extractor-args", "youtube:player_client=tv_embedded");
     }
   }
   if (isVK) {
@@ -515,26 +572,72 @@ function enrichFfmpegError(raw) {
   return raw;
 }
 function cleanYtDlpError(raw) {
+  if (isSslError(raw)) return "ssl_error";
   const lines = raw.split("\n");
   const errors = lines.filter((l) => l.trimStart().startsWith("ERROR:"));
   if (errors.length > 0) {
-    return errors.map((l) => l.replace(/^.*?ERROR:\s*/, "")).join(" | ");
+    return errors.map((l) => l.replace(/^.*?ERROR:\s*/, "")).join(" | ").slice(0, 300);
   }
-  const cleaned = lines.filter((l) => !l.trimStart().startsWith("WARNING:")).join("\n").trim();
-  return cleaned || raw;
+  const cleaned = lines.filter((l) => !l.trimStart().startsWith("WARNING:") && !l.trimStart().startsWith("[")).join("\n").trim();
+  return (cleaned || raw).slice(0, 300);
+}
+function isAgeGateError(raw) {
+  const l = raw.toLowerCase();
+  return l.includes("sign in to confirm your age") || l.includes("age-restricted") || l.includes("confirm your age") || l.includes("this video may be inappropriate");
 }
 electron.ipcMain.handle("fetch-video-info", async (_e, rawUrl) => {
   if (!ytDlpWrap) return { success: false, error: "yt-dlp not initialized" };
   const url = normalizeVkUrl(rawUrl);
+  const s = store.get("settings");
+  const isPlaylistOnly = /[?&]list=/.test(url) && !/[?&]v=/.test(url);
+  const extraArgs = isPlaylistOnly ? ["--yes-playlist", "--playlist-items", "1"] : ["--no-playlist"];
   try {
-    const s = store.get("settings");
     const baseArgs = getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, url);
-    const isPlaylistOnly = /[?&]list=/.test(url) && !/[?&]v=/.test(url);
-    const extraArgs = isPlaylistOnly ? ["--yes-playlist", "--playlist-items", "1"] : ["--no-playlist"];
-    const info = await ytDlpWrap.getVideoInfo([url, ...extraArgs, ...baseArgs]);
+    const fullArgs = [url, ...extraArgs, ...baseArgs];
+    console.log("\n─── fetch-video-info ───────────────────────────────");
+    console.log("URL:", url);
+    console.log("yt-dlp path:", getYtDlpPath());
+    console.log("Args:", fullArgs.join(" "));
+    console.log("cookiesStale:", _cookiesStale);
+    const info = await ytDlpWrap.getVideoInfo(fullArgs);
+    console.log("✓ fetch-video-info OK, formats count:", info?.formats?.length ?? "n/a");
     return { success: true, data: info };
   } catch (e) {
-    return { success: false, error: String(e) };
+    const errStr = String(e);
+    if (errStr.includes("cookies are no longer valid") || errStr.includes("cookies have been rotated")) {
+      markCookiesStale();
+      console.warn("[YouDownload] Stale cookies detected — retrying with ios client (no cookies)");
+      try {
+        const retryArgs = getBaseArgs("none", void 0, url, "ios");
+        const retryFull = [url, ...extraArgs, ...retryArgs];
+        console.log("Retry args:", retryFull.join(" "));
+        const info = await ytDlpWrap.getVideoInfo(retryFull);
+        console.log("✓ fetch-video-info retry OK, formats:", info?.formats?.length ?? "n/a");
+        return { success: true, data: info };
+      } catch (e2) {
+        console.error("✗ fetch-video-info retry ERROR:", String(e2));
+        return { success: false, error: cleanYtDlpError(String(e2)) };
+      }
+    }
+    console.error("✗ fetch-video-info ERROR (raw):\n", errStr);
+    if (isAgeGateError(errStr)) {
+      try {
+        const retryArgs = getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, url, "tv_embedded");
+        const info = await ytDlpWrap.getVideoInfo([url, ...extraArgs, ...retryArgs]);
+        return { success: true, data: info };
+      } catch (e2) {
+        const err2 = String(e2);
+        if (isAgeGateError(err2)) {
+          return {
+            success: false,
+            error: "age_gate"
+            // special token — renderer shows sign-in prompt
+          };
+        }
+        return { success: false, error: cleanYtDlpError(err2) };
+      }
+    }
+    return { success: false, error: cleanYtDlpError(errStr) };
   }
 });
 electron.ipcMain.handle("fetch-twitch-channel", async (_e, channelName, type) => {
@@ -608,17 +711,24 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       event.sender.send("download-progress", { id: payload.id, progress: pct, speed: "", eta: "", status: "downloading" });
     }, 800);
   }
-  const args = [
+  const buildArgs = (sslFallback) => [
     payload.url,
     ...formatArgs,
-    ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url),
+    ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url, void 0, sslFallback),
     "-o",
     path.join(outDir, "%(title)s.%(ext)s"),
     "--no-playlist",
     "--progress",
     "--newline"
   ];
-  try {
+  console.log("\n─── start-download ─────────────────────────────────");
+  console.log("ID:", payload.id);
+  console.log("URL:", payload.url);
+  console.log("formatArgs:", formatArgs.join(" "));
+  console.log("outDir:", outDir);
+  console.log("Full args:", buildArgs(false).join(" "));
+  console.log("ffmpeg path:", findFfmpeg() ?? "NOT FOUND");
+  const runDownload = (args) => new Promise((resolve) => {
     const emitter = ytDlpWrap.exec(args);
     activeDownloads.set(payload.id, { emitter, cancelled: false });
     emitter.on("ytDlpEvent", (type, data) => {
@@ -631,30 +741,113 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       }
     });
     emitter.on("error", (err) => {
+      if (activeDownloads.get(payload.id)?.cancelled) {
+        resolve("error");
+        return;
+      }
+      const raw = err.message;
+      console.error("✗ download ERROR (raw):\n", raw);
+      if (raw.includes("cookies are no longer valid") || raw.includes("cookies have been rotated")) {
+        markCookiesStale();
+      }
+      if (isSslError(raw)) {
+        resolve("ssl_error");
+        return;
+      }
       if (sectionTimer) {
         clearInterval(sectionTimer);
         sectionTimer = null;
       }
-      const dl = activeDownloads.get(payload.id);
-      if (!dl?.cancelled) {
-        const msg = enrichFfmpegError(cleanYtDlpError(err.message));
-        event.sender.send("download-error", { id: payload.id, error: msg });
+      let msg;
+      if (isAgeGateError(raw)) {
+        msg = "age_gate";
+      } else {
+        msg = enrichFfmpegError(cleanYtDlpError(raw));
       }
+      console.error("✗ download ERROR (cleaned):", msg);
+      event.sender.send("download-error", { id: payload.id, error: msg });
       activeDownloads.delete(payload.id);
+      resolve("error");
     });
     emitter.on("close", () => {
+      if (activeDownloads.get(payload.id)?.cancelled) {
+        resolve("error");
+        return;
+      }
+      resolve("complete");
+    });
+  });
+  try {
+    const result1 = await runDownload(buildArgs(false));
+    if (result1 === "complete") {
       if (sectionTimer) {
         clearInterval(sectionTimer);
         sectionTimer = null;
       }
-      const dl = activeDownloads.get(payload.id);
-      if (!dl?.cancelled) event.sender.send("download-complete", { id: payload.id });
+      event.sender.send("download-complete", { id: payload.id });
       activeDownloads.delete(payload.id);
-    });
+      return { success: true };
+    }
+    if (result1 === "error") {
+      if (sectionTimer) {
+        clearInterval(sectionTimer);
+        sectionTimer = null;
+      }
+      return { success: true };
+    }
+    if (result1 === "ssl_error") {
+      event.sender.send("download-progress", {
+        id: payload.id,
+        progress: 0,
+        speed: "",
+        eta: "",
+        status: "downloading",
+        hint: "ssl_retry"
+      });
+      const result2 = await runDownload(buildArgs(true));
+      if (result2 === "complete") {
+        if (sectionTimer) {
+          clearInterval(sectionTimer);
+          sectionTimer = null;
+        }
+        event.sender.send("download-complete", { id: payload.id });
+        activeDownloads.delete(payload.id);
+        return { success: true };
+      }
+      if (result2 === "ssl_error") {
+        if (sectionTimer) {
+          clearInterval(sectionTimer);
+          sectionTimer = null;
+        }
+        event.sender.send("download-error", { id: payload.id, error: "ssl_error" });
+        activeDownloads.delete(payload.id);
+      }
+      if (result2 === "error") {
+        if (sectionTimer) {
+          clearInterval(sectionTimer);
+          sectionTimer = null;
+        }
+      }
+    }
     return { success: true };
   } catch (e) {
     return { success: false, error: String(e) };
   }
+});
+electron.ipcMain.handle("debug-list-formats", async (_e, url) => {
+  const { spawnSync: spawnSync2 } = await import("child_process");
+  const ytPath = getYtDlpPath();
+  console.log("\n─── debug-list-formats ─────────────────────────────");
+  console.log("URL:", url);
+  const result = spawnSync2(ytPath, [url, "--list-formats", "--no-playlist"], { encoding: "utf8", timeout: 3e4 });
+  console.log("STDOUT:\n", result.stdout);
+  if (result.stderr) console.log("STDERR:\n", result.stderr);
+  return { stdout: result.stdout, stderr: result.stderr };
+});
+electron.ipcMain.handle("get-cookies-stale", () => _cookiesStale);
+electron.ipcMain.handle("reset-cookies-stale", () => {
+  _cookiesStale = false;
+  return true;
 });
 electron.ipcMain.handle("cancel-download", (_e, id) => {
   const dl = activeDownloads.get(id);
@@ -785,64 +978,28 @@ async function saveSessionCookies() {
   fs.writeFileSync(getWritableCookiesPath(), lines.join("\n"), "utf-8");
 }
 async function autoRefreshCookies() {
-  const ses = electron.session.fromPartition("persist:yt-cookies");
-  const existing = await ses.cookies.get({ domain: "youtube.com", name: "SID" });
-  if (existing.length === 0) return;
-  const win = new electron.BrowserWindow({
-    width: 1,
-    height: 1,
-    show: false,
-    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
-  });
   try {
-    await Promise.race([
-      new Promise((resolve) => win.webContents.once("did-finish-load", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 12e3))
-    ]);
-    win.loadURL("https://www.youtube.com");
-    await Promise.race([
-      new Promise((resolve) => win.webContents.once("did-finish-load", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 12e3))
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 2500));
     await saveSessionCookies();
   } catch {
-  } finally {
-    win.destroy();
   }
 }
 async function autoRefreshVkCookies() {
-  const ses = electron.session.fromPartition("persist:vk-cookies");
-  const existing = await ses.cookies.get({ domain: "vk.com", name: "remixsid" });
-  if (existing.length === 0) return;
-  const win = new electron.BrowserWindow({
-    width: 1,
-    height: 1,
-    show: false,
-    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
-  });
   try {
-    win.loadURL("https://vk.com");
-    await Promise.race([
-      new Promise((resolve) => win.webContents.once("did-finish-load", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 12e3))
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 2e3));
+    const ses = electron.session.fromPartition("persist:vk-cookies");
+    const existing = await ses.cookies.get({ domain: "vk.com", name: "remixsid" });
+    if (existing.length === 0) return;
     const vk = await ses.cookies.get({ domain: "vk.com" });
-    if (vk.length > 0) {
-      const lines = ["# Netscape HTTP Cookie File", ""];
-      for (const c of vk) {
-        const domain = c.domain ?? "";
-        const hostOnly = domain.startsWith(".") ? "TRUE" : "FALSE";
-        const secure = c.secure ? "TRUE" : "FALSE";
-        const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
-        lines.push(`${domain}	${hostOnly}	${c.path ?? "/"}	${secure}	${expiry}	${c.name}	${c.value}`);
-      }
-      fs.writeFileSync(getVkCookiesPath(), lines.join("\n"), "utf-8");
+    if (vk.length === 0) return;
+    const lines = ["# Netscape HTTP Cookie File", ""];
+    for (const c of vk) {
+      const domain = c.domain ?? "";
+      const hostOnly = domain.startsWith(".") ? "TRUE" : "FALSE";
+      const secure = c.secure ? "TRUE" : "FALSE";
+      const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+      lines.push(`${domain}	${hostOnly}	${c.path ?? "/"}	${secure}	${expiry}	${c.name}	${c.value}`);
     }
+    fs.writeFileSync(getVkCookiesPath(), lines.join("\n"), "utf-8");
   } catch {
-  } finally {
-    win.destroy();
   }
 }
 electron.app.whenReady().then(async () => {

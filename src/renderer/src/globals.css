@@ -3555,3 +3555,33 @@ body::after {
 [data-theme="apathy"] .smf-save { background: var(--ap-pink); }
 [data-theme="apathy"] .smi-dot { background: var(--ap-pink); }
 [data-theme="apathy"] .smi-cut:hover:not(:disabled) { border-color: var(--ap-pink); color: var(--ap-pink); }
+
+/* ── ffmpeg auto-install banner ── */
+.ffmpeg-banner { display:flex; align-items:center; gap:8px; padding:7px 16px; font-size:12px; font-family:var(--ff-mono,monospace); letter-spacing:0.03em; z-index:200; animation:ffmpeg-fadein 0.25s ease; }
+@keyframes ffmpeg-fadein { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+.ffmpeg-banner-installing { background:rgba(74,222,128,0.07); border-bottom:1px solid rgba(74,222,128,0.18); color:var(--g,#4ADE80); }
+.ffmpeg-banner-ok         { background:rgba(74,222,128,0.10); border-bottom:1px solid rgba(74,222,128,0.25); color:var(--g,#4ADE80); }
+.ffmpeg-banner-failed     { background:rgba(239,68,68,0.08);  border-bottom:1px solid rgba(239,68,68,0.20);  color:#EF4444; }
+.ffmpeg-banner-dismiss { margin-left:auto; background:none; border:none; color:inherit; opacity:0.6; cursor:pointer; font-size:13px; padding:0 4px; line-height:1; }
+.ffmpeg-banner-dismiss:hover { opacity:1; }
+[data-theme="apathy"] .ffmpeg-banner-installing,
+[data-theme="apathy"] .ffmpeg-banner-ok { background:rgba(255,59,124,0.07); border-bottom-color:rgba(255,59,124,0.2); color:var(--ap-pink,#FF3B7C); }
+
+/* ── Age-gate card ── */
+.age-gate-card { display:flex; gap:16px; align-items:flex-start; background:rgba(250,204,21,0.06); border:1px solid rgba(250,204,21,0.22); border-radius:10px; padding:18px 20px; margin:8px 0; animation:ffmpeg-fadein 0.2s ease; }
+.age-gate-icon { color:#FACC15; opacity:0.85; flex-shrink:0; padding-top:2px; }
+.age-gate-body { display:flex; flex-direction:column; gap:8px; }
+.age-gate-title { font-size:13px; font-weight:600; color:#FACC15; letter-spacing:0.02em; }
+.age-gate-desc { font-size:12px; color:var(--t1); line-height:1.55; max-width:480px; }
+.age-gate-btn { display:inline-flex; align-items:center; gap:7px; background:rgba(250,204,21,0.12); border:1px solid rgba(250,204,21,0.35); color:#FACC15; border-radius:7px; padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer; transition:background var(--trans),border-color var(--trans); width:fit-content; }
+.age-gate-btn:hover { background:rgba(250,204,21,0.2); border-color:rgba(250,204,21,0.6); }
+.age-gate-hint { font-size:11px; color:var(--t2); opacity:0.7; }
+[data-theme="apathy"] .age-gate-card { background:rgba(255,59,124,0.05); border-color:rgba(255,59,124,0.2); }
+[data-theme="apathy"] .age-gate-title,[data-theme="apathy"] .age-gate-icon { color:var(--ap-pink); }
+[data-theme="apathy"] .age-gate-btn { background:rgba(255,59,124,0.1); border-color:rgba(255,59,124,0.3); color:var(--ap-pink); }
+[data-theme="apathy"] .age-gate-btn:hover { background:rgba(255,59,124,0.2); border-color:var(--ap-pink); }
+
+/* ── SSL retry badge & error ── */
+.dl-ssl-retry { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#FACC15; opacity:0.9; }
+.dl-err-ssl { display:inline-flex; align-items:center; gap:5px; color:#FACC15 !important; }
+.dl-err-ssl svg { flex-shrink:0; opacity:0.8; }

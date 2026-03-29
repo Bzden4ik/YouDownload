@@ -315,22 +315,69 @@ function findNodePath(): string | null {
   try { return execSync('where node', { encoding: 'utf8', timeout: 3000 }).split('\n')[0].trim() || null } catch { return null }
 }
 
+/** Returns true if the error is an SSL/network transient error that can be retried */
+function isSslError(raw: string): boolean {
+  const l = raw.toLowerCase()
+  return l.includes('eof occurred in violation of protocol') ||
+    l.includes('_ssl.c') ||
+    l.includes('ssl: eof') ||
+    l.includes('connection reset by peer') ||
+    l.includes('remotedisconnected') ||
+    l.includes('broken pipe') ||
+    l.includes('unable to download json metadata') && l.includes('ssl')
+}
+
+/** Returns true if cookies.txt exists but is known-invalid (rotated/expired) */
+function areCookiesStale(): boolean {
+  const p = getWritableCookiesPath()
+  if (!existsSync(p)) return false
+  // Quick probe: run yt-dlp --cookies <file> --simulate on a known-public video
+  // Too slow to do here — instead we track staleness via a flag set after seeing the warning
+  return _cookiesStale
+}
+let _cookiesStale = false
+
+/** Call this whenever yt-dlp emits the "cookies are no longer valid" warning */
+function markCookiesStale(): void {
+  if (!_cookiesStale) {
+    _cookiesStale = true
+    console.warn('[YouDownload] Cookies marked as stale — falling back to ios client')
+  }
+}
+
 /** Build yt-dlp base args. */
-function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: string): string[] {
+function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: string, forceClient?: string, sslFallback = false): string[] {
   const explicit = cookiesFile && existsSync(cookiesFile) ? cookiesFile : null
   const writable = existsSync(getWritableCookiesPath()) ? getWritableCookiesPath() : null
-  const activeCookies = explicit ?? writable
+  // Don't use cookies if they're known-stale
+  const activeCookies = areCookiesStale() ? null : (explicit ?? writable)
 
   const isTwitch  = url?.includes('twitch.tv') ?? false
   const isVK      = (url?.includes('vk.com') || url?.includes('vkvideo.ru')) ?? false
   const isMusicYT = url?.includes('music.youtube.com') ?? false
 
+  // NOTE: --remote-components ejs:github removed — it requires Node.js/Deno on the
+  // system and causes "No supported JavaScript runtime" warnings on clean installs.
   const args: string[] = [
-    '--retries', '3',
-    '--fragment-retries', '3',
+    '--retries',          isTwitch ? '10' : '3',
+    '--fragment-retries', isTwitch ? '10' : '3',
     '--skip-unavailable-fragments',
-    '--remote-components', 'ejs:github',
   ]
+
+  // Twitch HLS: добавляем паузу между фрагментами и таймаут соединения,
+  // чтобы снизить нагрузку и избежать SSL-обрывов
+  if (isTwitch) {
+    args.push(
+      '--sleep-interval',   '1',
+      '--max-sleep-interval','3',
+      '--socket-timeout',   '30',
+    )
+  }
+
+  // SSL fallback: при повторной попытке после SSL-ошибки отключаем проверку сертификата
+  if (sslFallback) {
+    args.push('--no-check-certificates')
+  }
 
   // Automatically pass --ffmpeg-location if we can find ffmpeg
   const ffmpegPath = findFfmpeg()
@@ -339,21 +386,30 @@ function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: str
     args.push('--ffmpeg-location', ffmpegDir)
   }
 
+  // Bundled qjs.exe for JS challenge solving (n-challenge) — self-contained, no internet needed
+  const qjsPath = join(getYtDlpPath(), '..', 'qjs.exe')
+  if (existsSync(qjsPath)) {
+    args.push('--js-runtimes', `quickjs:${qjsPath}`)
+  }
+
   if (!isTwitch && !isVK) {
-    // With cookies: do not force a client — yt-dlp picks the best one automatically.
-    // Without cookies: ios is reliable (no n-challenge, no PO Token needed).
-    // YouTube Music with cookies: android_music (no PO Token, accepts cookies).
-    if (isMusicYT) {
-      const playerClient = activeCookies ? 'android_music' : 'ios'
+    if (forceClient) {
+      // Caller explicitly requests a specific player client (e.g. age-gate retry)
+      args.push('--extractor-args', `youtube:player_client=${forceClient}`)
+    } else if (isMusicYT) {
+      // YouTube Music: android_music with valid cookies, ios without
+      const playerClient = (activeCookies && !areCookiesStale()) ? 'android_music' : 'ios'
       args.push('--extractor-args', `youtube:player_client=${playerClient}`)
-    } else if (!activeCookies) {
-      args.push('--extractor-args', 'youtube:player_client=ios')
+    } else if (activeCookies && !areCookiesStale()) {
+      // Valid logged-in cookies → tv_embedded client (full format list, no PO Token needed)
+      args.push('--extractor-args', 'youtube:player_client=tv_embedded')
+    } else {
+      // No cookies OR stale cookies → tv_embedded (full formats, no PO Token, no JS runtime needed)
+      args.push('--extractor-args', 'youtube:player_client=tv_embedded')
     }
-    // activeCookies + regular YouTube: no --extractor-args, let yt-dlp decide
   }
 
   if (isVK) {
-    // Prefer saved VK session cookies; fall back to browser cookies if browser is selected
     const vkCookies = existsSync(getVkCookiesPath()) ? getVkCookiesPath() : null
     if (vkCookies) {
       args.push('--cookies', vkCookies)
@@ -576,34 +632,96 @@ function enrichFfmpegError(raw: string): string {
   return raw
 }
 
-/** Strip WARNING lines from yt-dlp output, keep only the key ERROR */
+/** Strip WARNING lines from yt-dlp output, keep only the key ERROR, truncate long output */
 function cleanYtDlpError(raw: string): string {
+  // SSL errors — translate to human-readable message
+  if (isSslError(raw)) return 'ssl_error'
+
   const lines = raw.split('\n')
   // Prefer lines starting with ERROR:
   const errors = lines.filter(l => l.trimStart().startsWith('ERROR:'))
   if (errors.length > 0) {
-    return errors.map(l => l.replace(/^.*?ERROR:\s*/, '')).join(' | ')
+    return errors.map(l => l.replace(/^.*?ERROR:\s*/, '')).join(' | ').slice(0, 300)
   }
-  // Fallback: remove WARNING lines and return the rest
-  const cleaned = lines.filter(l => !l.trimStart().startsWith('WARNING:')).join('\n').trim()
-  return cleaned || raw
+  // Fallback: remove WARNING/INFO lines and return the rest, truncated
+  const cleaned = lines
+    .filter(l => !l.trimStart().startsWith('WARNING:') && !l.trimStart().startsWith('['))
+    .join('\n').trim()
+  return (cleaned || raw).slice(0, 300)
+}
+
+/** Returns true if the error is an age-gate / sign-in required error */
+function isAgeGateError(raw: string): boolean {
+  const l = raw.toLowerCase()
+  return l.includes('sign in to confirm your age') ||
+    l.includes('age-restricted') ||
+    l.includes('confirm your age') ||
+    l.includes('this video may be inappropriate')
 }
 
 // Fetch video info
 ipcMain.handle('fetch-video-info', async (_e, rawUrl: string) => {
   if (!ytDlpWrap) return { success: false, error: 'yt-dlp not initialized' }
   const url = normalizeVkUrl(rawUrl)
+  const s = store.get('settings')
+  const isPlaylistOnly = /[?&]list=/.test(url) && !/[?&]v=/.test(url)
+  const extraArgs = isPlaylistOnly
+    ? ['--yes-playlist', '--playlist-items', '1']
+    : ['--no-playlist']
+
+  // Attempt 1: normal args
   try {
-    const s = store.get('settings')
     const baseArgs = getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, url)
-    // Чистый playlist URL (нет watch?v=) — берём первый трек через --playlist-items 1
-    const isPlaylistOnly = /[?&]list=/.test(url) && !/[?&]v=/.test(url)
-    const extraArgs = isPlaylistOnly
-      ? ['--yes-playlist', '--playlist-items', '1']
-      : ['--no-playlist']
-    const info = await ytDlpWrap.getVideoInfo([url, ...extraArgs, ...baseArgs])
+    const fullArgs = [url, ...extraArgs, ...baseArgs]
+    console.log('\n─── fetch-video-info ───────────────────────────────')
+    console.log('URL:', url)
+    console.log('yt-dlp path:', getYtDlpPath())
+    console.log('Args:', fullArgs.join(' '))
+    console.log('cookiesStale:', _cookiesStale)
+    const info = await ytDlpWrap.getVideoInfo(fullArgs)
+    console.log('✓ fetch-video-info OK, formats count:', (info as any)?.formats?.length ?? 'n/a')
     return { success: true, data: info }
-  } catch (e) { return { success: false, error: String(e) } }
+  } catch (e) {
+    const errStr = String(e)
+    // Detect stale cookies warning and retry immediately with ios client
+    if (errStr.includes('cookies are no longer valid') || errStr.includes('cookies have been rotated')) {
+      markCookiesStale()
+      console.warn('[YouDownload] Stale cookies detected — retrying with ios client (no cookies)')
+      try {
+        const retryArgs = getBaseArgs('none', undefined, url, 'ios')
+        const retryFull = [url, ...extraArgs, ...retryArgs]
+        console.log('Retry args:', retryFull.join(' '))
+        const info = await ytDlpWrap.getVideoInfo(retryFull)
+        console.log('✓ fetch-video-info retry OK, formats:', (info as any)?.formats?.length ?? 'n/a')
+        return { success: true, data: info }
+      } catch (e2) {
+        console.error('✗ fetch-video-info retry ERROR:', String(e2))
+        return { success: false, error: cleanYtDlpError(String(e2)) }
+      }
+    }
+    console.error('✗ fetch-video-info ERROR (raw):\n', errStr)
+
+    // Attempt 2: age-gate → retry with tv_embedded client (bypasses age check without cookies)
+    if (isAgeGateError(errStr)) {
+      try {
+        const retryArgs = getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, url, 'tv_embedded')
+        const info = await ytDlpWrap.getVideoInfo([url, ...extraArgs, ...retryArgs])
+        return { success: true, data: info }
+      } catch (e2) {
+        const err2 = String(e2)
+        // Still blocked — user needs to sign in
+        if (isAgeGateError(err2)) {
+          return {
+            success: false,
+            error: 'age_gate', // special token — renderer shows sign-in prompt
+          }
+        }
+        return { success: false, error: cleanYtDlpError(err2) }
+      }
+    }
+
+    return { success: false, error: cleanYtDlpError(errStr) }
+  }
 })
 
 // Fetch Twitch channel content (vods or clips)
@@ -686,38 +804,127 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
     }, 800)
   }
 
-  const args = [payload.url, ...formatArgs, ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url),
-    '-o', join(outDir, '%(title)s.%(ext)s'), '--no-playlist', '--progress', '--newline']
-  try {
-    const emitter = ytDlpWrap.exec(args)
-    activeDownloads.set(payload.id, { emitter, cancelled: false })
-    emitter.on('ytDlpEvent', (type: string, data: string) => {
-      if (type === 'download') {
-        if (sectionTimer) return // прогресс управляется таймером
-        const pct = data.match(/(\d+\.?\d*)%/)?.[1]
-        const speed = data.match(/at\s+([\d.]+\s*\S+\/s)/)?.[1]
-        const eta = data.match(/ETA\s+([\d:]+)/)?.[1]
-        event.sender.send('download-progress', { id: payload.id, progress: pct ? parseFloat(pct) : 0, speed: speed ?? '', eta: eta ?? '', status: 'downloading' })
-      }
-    })
-    emitter.on('error', (err: Error) => {
-      if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
-      const dl = activeDownloads.get(payload.id)
-      if (!dl?.cancelled) {
-        const msg = enrichFfmpegError(cleanYtDlpError(err.message))
+  const buildArgs = (sslFallback: boolean) =>
+    [payload.url, ...formatArgs, ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url, undefined, sslFallback),
+      '-o', join(outDir, '%(title)s.%(ext)s'), '--no-playlist', '--progress', '--newline']
+
+  // DEBUG: log full yt-dlp args before starting download
+  console.log('\n─── start-download ─────────────────────────────────')
+  console.log('ID:', payload.id)
+  console.log('URL:', payload.url)
+  console.log('formatArgs:', formatArgs.join(' '))
+  console.log('outDir:', outDir)
+  console.log('Full args:', buildArgs(false).join(' '))
+  console.log('ffmpeg path:', findFfmpeg() ?? 'NOT FOUND')
+
+  /** Запускает загрузку с заданными args. Возвращает промис который резолвится при close/error. */
+  const runDownload = (args: string[]): Promise<'complete' | 'ssl_error' | 'error'> =>
+    new Promise(resolve => {
+      const emitter = ytDlpWrap!.exec(args)
+      activeDownloads.set(payload.id, { emitter, cancelled: false })
+
+      emitter.on('ytDlpEvent', (type: string, data: string) => {
+        if (type === 'download') {
+          if (sectionTimer) return
+          const pct = data.match(/(\d+\.?\d*)%/)?.[1]
+          const speed = data.match(/at\s+([\d.]+\s*\S+\/s)/)?.[1]
+          const eta = data.match(/ETA\s+([\d:]+)/)?.[1]
+          event.sender.send('download-progress', { id: payload.id, progress: pct ? parseFloat(pct) : 0, speed: speed ?? '', eta: eta ?? '', status: 'downloading' })
+        }
+      })
+
+      emitter.on('error', (err: Error) => {
+        if (activeDownloads.get(payload.id)?.cancelled) { resolve('error'); return }
+        const raw = err.message
+        console.error('✗ download ERROR (raw):\n', raw)
+        // Auto-detect stale cookies mid-download
+        if (raw.includes('cookies are no longer valid') || raw.includes('cookies have been rotated')) {
+          markCookiesStale()
+        }
+        if (isSslError(raw)) { resolve('ssl_error'); return }
+        // Non-SSL error — report immediately
+        if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
+        let msg: string
+        if (isAgeGateError(raw)) { msg = 'age_gate' }
+        else { msg = enrichFfmpegError(cleanYtDlpError(raw)) }
+        console.error('✗ download ERROR (cleaned):', msg)
         event.sender.send('download-error', { id: payload.id, error: msg })
-      }
-      activeDownloads.delete(payload.id)
+        activeDownloads.delete(payload.id)
+        resolve('error')
+      })
+
+      emitter.on('close', () => {
+        if (activeDownloads.get(payload.id)?.cancelled) { resolve('error'); return }
+        resolve('complete')
+      })
     })
-    emitter.on('close', () => {
+
+  try {
+    // Attempt 1 — normal args
+    const result1 = await runDownload(buildArgs(false))
+
+    if (result1 === 'complete') {
       if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
-      const dl = activeDownloads.get(payload.id)
-      if (!dl?.cancelled) event.sender.send('download-complete', { id: payload.id })
+      event.sender.send('download-complete', { id: payload.id })
       activeDownloads.delete(payload.id)
-    })
+      return { success: true }
+    }
+
+    // result1 === 'error' means cancelled or non-SSL error (already reported) — just clean up
+    if (result1 === 'error') {
+      if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
+      return { success: true }
+    }
+
+    if (result1 === 'ssl_error') {
+      // Notify user we're retrying
+      event.sender.send('download-progress', {
+        id: payload.id, progress: 0, speed: '', eta: '',
+        status: 'downloading', hint: 'ssl_retry'
+      })
+
+      // Attempt 2 — SSL fallback (--no-check-certificates + higher retries)
+      const result2 = await runDownload(buildArgs(true))
+
+      if (result2 === 'complete') {
+        if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
+        event.sender.send('download-complete', { id: payload.id })
+        activeDownloads.delete(payload.id)
+        return { success: true }
+      }
+
+      if (result2 === 'ssl_error') {
+        // Both attempts failed with SSL — report as ssl_error token
+        if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
+        event.sender.send('download-error', { id: payload.id, error: 'ssl_error' })
+        activeDownloads.delete(payload.id)
+      }
+
+      // result2 === 'error': cancelled or non-SSL error already reported
+      if (result2 === 'error') {
+        if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
+      }
+    }
+
     return { success: true }
   } catch (e) { return { success: false, error: String(e) } }
 })
+
+// DEBUG: list all available formats for a URL (logs to console)
+ipcMain.handle('debug-list-formats', async (_e, url: string) => {
+  const { spawnSync } = await import('child_process')
+  const ytPath = getYtDlpPath()
+  console.log('\n─── debug-list-formats ─────────────────────────────')
+  console.log('URL:', url)
+  const result = spawnSync(ytPath, [url, '--list-formats', '--no-playlist'], { encoding: 'utf8', timeout: 30000 })
+  console.log('STDOUT:\n', result.stdout)
+  if (result.stderr) console.log('STDERR:\n', result.stderr)
+  return { stdout: result.stdout, stderr: result.stderr }
+})
+
+// Cookies stale status — renderer can query and show a warning banner
+ipcMain.handle('get-cookies-stale', () => _cookiesStale)
+ipcMain.handle('reset-cookies-stale', () => { _cookiesStale = false; return true })
 
 // Cancel download
 ipcMain.handle('cancel-download', (_e, id: string) => {
@@ -869,66 +1076,35 @@ async function saveSessionCookies(): Promise<void> {
   writeFileSync(getWritableCookiesPath(), lines.join('\n'), 'utf-8')
 }
 
-/** Silently open YouTube in the background to refresh session cookies, then close. */
+/**
+ * On startup: just flush already-cached Electron session cookies to cookies.txt.
+ * We do NOT open a hidden browser window — doing so triggers Google's security
+ * flow and can sign users out of YouTube/Google in their system browsers.
+ */
 async function autoRefreshCookies(): Promise<void> {
-  const ses = session.fromPartition('persist:yt-cookies')
-  const existing = await ses.cookies.get({ domain: 'youtube.com', name: 'SID' })
-  if (existing.length === 0) return // not logged in — skip
-
-  const win = new BrowserWindow({
-    width: 1, height: 1, show: false,
-    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
-  })
   try {
-    await Promise.race([
-      new Promise<void>(resolve => win.webContents.once('did-finish-load', resolve)),
-      new Promise<void>(resolve => setTimeout(resolve, 12000)),
-    ])
-    win.loadURL('https://www.youtube.com')
-    await Promise.race([
-      new Promise<void>(resolve => win.webContents.once('did-finish-load', resolve)),
-      new Promise<void>(resolve => setTimeout(resolve, 12000)),
-    ])
-    // Give YouTube a moment to set/rotate cookies
-    await new Promise(resolve => setTimeout(resolve, 2500))
     await saveSessionCookies()
-  } catch { /* non-critical */ } finally {
-    win.destroy()
-  }
+  } catch { /* non-critical */ }
 }
 
-/** Silently open VK in the background to refresh session cookies, then close. */
+/** On startup: flush VK session cookies to vk-cookies.txt without opening any window. */
 async function autoRefreshVkCookies(): Promise<void> {
-  const ses = session.fromPartition('persist:vk-cookies')
-  const existing = await ses.cookies.get({ domain: 'vk.com', name: 'remixsid' })
-  if (existing.length === 0) return
-
-  const win = new BrowserWindow({
-    width: 1, height: 1, show: false,
-    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
-  })
   try {
-    win.loadURL('https://vk.com')
-    await Promise.race([
-      new Promise<void>(resolve => win.webContents.once('did-finish-load', resolve)),
-      new Promise<void>(resolve => setTimeout(resolve, 12000)),
-    ])
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    const ses = session.fromPartition('persist:vk-cookies')
+    const existing = await ses.cookies.get({ domain: 'vk.com', name: 'remixsid' })
+    if (existing.length === 0) return
     const vk = await ses.cookies.get({ domain: 'vk.com' })
-    if (vk.length > 0) {
-      const lines = ['# Netscape HTTP Cookie File', '']
-      for (const c of vk) {
-        const domain   = c.domain ?? ''
-        const hostOnly = domain.startsWith('.') ? 'TRUE' : 'FALSE'
-        const secure   = c.secure ? 'TRUE' : 'FALSE'
-        const expiry   = c.expirationDate ? Math.floor(c.expirationDate) : 0
-        lines.push(`${domain}\t${hostOnly}\t${c.path ?? '/'}\t${secure}\t${expiry}\t${c.name}\t${c.value}`)
-      }
-      writeFileSync(getVkCookiesPath(), lines.join('\n'), 'utf-8')
+    if (vk.length === 0) return
+    const lines = ['# Netscape HTTP Cookie File', '']
+    for (const c of vk) {
+      const domain   = c.domain ?? ''
+      const hostOnly = domain.startsWith('.') ? 'TRUE' : 'FALSE'
+      const secure   = c.secure ? 'TRUE' : 'FALSE'
+      const expiry   = c.expirationDate ? Math.floor(c.expirationDate) : 0
+      lines.push(`${domain}\t${hostOnly}\t${c.path ?? '/'}\t${secure}\t${expiry}\t${c.name}\t${c.value}`)
     }
-  } catch { /* non-critical */ } finally {
-    win.destroy()
-  }
+    writeFileSync(getVkCookiesPath(), lines.join('\n'), 'utf-8')
+  } catch { /* non-critical */ }
 }
 
 // App lifecycle

@@ -60,6 +60,18 @@ function isCookieError(err: string): boolean {
     || l.includes('access restricted')
 }
 
+function isAgeGate(err: string): boolean {
+  return err === 'age_gate'
+}
+
+function isSslError(err: string): boolean {
+  return err === 'ssl_error'
+}
+
+function isStaleError(err: string): boolean {
+  return err === 'stale_cookies'
+}
+
 function isFfmpegError(err: string): boolean {
   const l = err.toLowerCase()
   return l.includes('ffmpeg') && (l.includes('not installed') || l.includes('not found') || l.includes('aborting') || l.includes('is not installed'))
@@ -130,7 +142,7 @@ function getFormatArgs(type: FormatType, quality: VideoQuality | AudioQuality): 
     return map[quality as AudioQuality] ?? map.mp3_best
   }
   const q = quality as VideoQuality
-  return ['-f',`bestvideo[height<=${q}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${q}]+bestaudio/bestvideo+bestaudio`,'--merge-output-format','mp4']
+  return ['-f',`bestvideo[height<=${q}]+bestaudio/bestvideo[height<=${q}]+bestaudio[ext=m4a]/bestvideo+bestaudio`,'--merge-output-format','mp4','--remux-video','mp4']
 }
 
 function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality): string {
@@ -721,7 +733,7 @@ declare global {
       openFolder: (path: string) => Promise<void>
       openExternal: (url: string) => Promise<void>
       getPreviewPort: () => Promise<number>
-      onDownloadProgress: (cb: (d: { id: string; progress: number; speed: string; eta: string }) => void) => () => void
+      onDownloadProgress: (cb: (d: { id: string; progress: number; speed: string; eta: string; hint?: string }) => void) => () => void
       onDownloadComplete: (cb: (d: { id: string }) => void) => () => void
       onDownloadError: (cb: (d: { id: string; error: string }) => void) => () => void
       // Updates
@@ -733,6 +745,11 @@ declare global {
       checkFfmpeg: () => Promise<{ exists: boolean; path: string }>
       downloadFfmpeg: () => Promise<{ success: boolean; path?: string; error?: string }>
       onFfmpegDownloadProgress: (cb: (d: { step: string }) => void) => () => void
+      // cookies staleness
+      getCookiesStale: () => Promise<boolean>
+      resetCookiesStale: () => Promise<boolean>
+      selectCookiesFile: () => Promise<string | null>
+      debugListFormats: (url: string) => Promise<{ stdout: string; stderr: string }>
     }
   }
 }
@@ -811,7 +828,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
           <span className={`lang-opt ${lang==='ru'?'lang-opt-on':''}`}>RU</span>
         </button>
         <div className="sb-status-row"><span className="sb-dot"/><span className="sb-ready">{t.status_ready}</span></div>
-        <div className="sb-version">v1.0.5</div>
+        <div className="sb-version">v1.0.7</div>
       </div>
     </aside>
   )
@@ -1168,8 +1185,8 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
 const STATUS_COLOR: Record<DownloadStatus,string> = { pending:'#60A5FA', downloading:'#4ADE80', processing:'#FACC15', complete:'#4ADE80', error:'#EF4444', cancelled:'#475569' }
 const STATUS_LABEL = (t: Translations): Record<DownloadStatus,string> => ({ pending:t.st_pending, downloading:t.st_downloading, processing:t.st_processing, complete:t.st_complete, error:t.st_error, cancelled:t.st_cancelled })
 
-function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t }: {
-  item: DownloadItem; onCancel: (id: string) => void; onOpen: (id: string) => void; onCookieHint: () => void; onFfmpegHint: () => void; t: Translations
+function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t, lang }: {
+  item: DownloadItem; onCancel: (id: string) => void; onOpen: (id: string) => void; onCookieHint: () => void; onFfmpegHint: () => void; t: Translations; lang: Lang
 }) {
   const c = STATUS_COLOR[item.status]
   const labels = STATUS_LABEL(t)
@@ -1188,8 +1205,10 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t }:
         <div className="dl-info-row">
           <span className="dl-fmt">{item.formatLabel}</span>
           <span className="dl-status-tag" style={{color:c}}><span className="dl-sdot" style={{background:c}}/>{labels[item.status]}</span>
-          {item.speed && <span className="dl-speed">{item.speed}</span>}
-          {item.eta && <span className="dl-eta">{t.eta} {item.eta}</span>}
+          {item.speed === 'ssl_retry'
+            ? <span className="dl-ssl-retry"><span className="spin" style={{width:9,height:9}}/>{lang==='ru'?'Повтор (SSL)…':'Retrying (SSL)…'}</span>
+            : item.speed && <span className="dl-speed">{item.speed}</span>}
+          {item.speed !== 'ssl_retry' && item.eta && <span className="dl-eta">{t.eta} {item.eta}</span>}
           {item.status==='downloading' && <span className="dl-pct">{Math.round(item.progress)}%</span>}
         </div>
         {showBar && (
@@ -1200,8 +1219,25 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t }:
         )}
         {item.error && (
           <div className="dl-err-wrap">
-            <span className="dl-err">{item.error}</span>
-            {isCookieError(item.error) && (
+            {isAgeGate(item.error) ? (
+              <span className="dl-err">
+                {t.lang === 'ru' ? 'Возрастное ограничение — ' : 'Age-restricted — '}
+                <button className="dl-cookie-hint" onClick={onCookieHint}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  {t.err_cookie_hint}
+                </button>
+              </span>
+            ) : isSslError(item.error) ? (
+              <span className="dl-err dl-err-ssl">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                {lang==='ru'
+                  ? 'Ошибка SSL-соединения с Twitch. Попробуй снова — обычно помогает с 1–2 попытки.'
+                  : 'SSL connection error with Twitch. Try again — usually works after 1–2 retries.'}
+              </span>
+            ) : (
+              <span className="dl-err">{item.error}</span>
+            )}
+            {!isAgeGate(item.error) && !isSslError(item.error) && isCookieError(item.error) && (
               <button className="dl-cookie-hint" onClick={onCookieHint}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 {t.err_cookie_hint}
@@ -1836,7 +1872,11 @@ export default function App() {
 
   useEffect(() => {
     if (!window.api) return
-    const u1 = window.api.onDownloadProgress(d => setDownloads(p => p.map(x => x.id===d.id ? {...x,progress:d.progress,speed:d.speed,eta:d.eta,status:'downloading'} : x)))
+    const u1 = window.api.onDownloadProgress(d => setDownloads(p => p.map(x => x.id===d.id
+      ? { ...x, progress: d.progress, speed: d.speed, eta: d.eta, status: 'downloading',
+          // ssl_retry hint — show retrying badge instead of speed
+          ...(d.hint === 'ssl_retry' ? { speed: 'ssl_retry', eta: '' } : {}) }
+      : x)))
     const u2 = window.api.onDownloadComplete(d => setDownloads(p => {
       const updated = p.map(x => x.id===d.id ? {...x,status:'complete' as const,progress:100} : x)
       const item = updated.find(x => x.id===d.id)
@@ -2017,7 +2057,34 @@ export default function App() {
             <div className="dl-view">
               <UrlInput onFetch={handleFetch} loading={fetching} t={t} platform={platform} onPlatformChange={setPlatform}/>
 
-              {fetchErr && <div className="fetch-err"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{fetchErr}{isCookieError(fetchErr) && <button className="dl-cookie-hint" style={{marginLeft:'10px'}} onClick={handleCookieHint}>{t.err_cookie_hint}</button>}</div>}
+              {fetchErr && !isAgeGate(fetchErr) && <div className="fetch-err"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{fetchErr}{isCookieError(fetchErr) && <button className="dl-cookie-hint" style={{marginLeft:'10px'}} onClick={handleCookieHint}>{t.err_cookie_hint}</button>}</div>}
+
+              {fetchErr && isAgeGate(fetchErr) && (
+                <div className="age-gate-card">
+                  <div className="age-gate-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  </div>
+                  <div className="age-gate-body">
+                    <div className="age-gate-title">{lang === 'ru' ? 'Видео с возрастным ограничением' : 'Age-restricted video'}</div>
+                    <div className="age-gate-desc">{lang === 'ru'
+                      ? 'YouTube требует авторизацию для этого видео. Войдите в аккаунт прямо здесь — это займёт 10 секунд.'
+                      : 'YouTube requires sign-in for this video. Log in right here — it takes 10 seconds.'
+                    }</div>
+                    <button className="age-gate-btn" onClick={async () => {
+                      setFetchErr('')
+                      await handleCookieHint()
+                      // small delay so settings tab opens, then auto-trigger cookie extraction
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                      {lang === 'ru' ? 'Войти в YouTube' : 'Sign in to YouTube'}
+                    </button>
+                    <div className="age-gate-hint">{lang === 'ru'
+                      ? 'После входа вернись и нажми Fetch снова'
+                      : 'After signing in, come back and press Fetch again'
+                    }</div>
+                  </div>
+                </div>
+              )}
 
               {/* Twitch channel browser */}
               {twitchChannel && (
@@ -2057,7 +2124,7 @@ export default function App() {
               {downloads.length>0 && (
                 <div className="queue-section">
                   <div className="queue-head"><span className="section-eyebrow-sm">{t.lbl_downloads}</span>{activeCount>0&&<span className="queue-badge">{activeCount} {t.lbl_active}</span>}</div>
-                  <div className="queue-list">{downloads.slice(0,15).map(d=><DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} onFfmpegHint={handleFfmpegHint} t={t}/>)}</div>
+                  <div className="queue-list">{downloads.slice(0,15).map(d=><DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} onFfmpegHint={handleFfmpegHint} t={t} lang={lang}/>)}</div>
                 </div>
               )}
             </div>

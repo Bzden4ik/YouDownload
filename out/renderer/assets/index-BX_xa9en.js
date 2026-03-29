@@ -7273,6 +7273,12 @@ function isCookieError(err) {
   const l2 = err.toLowerCase();
   return l2.includes("cookie") || l2.includes("sign in") || l2.includes("login") || l2.includes("403") || l2.includes("age-restricted") || l2.includes("private") || l2.includes("members") || l2.includes("dpapi") || l2.includes("chrome cookie") || l2.includes("could not copy") || l2.includes("requires authentication") || l2.includes("confirm your age") || l2.includes("not available") || l2.includes("access restricted");
 }
+function isAgeGate(err) {
+  return err === "age_gate";
+}
+function isSslError(err) {
+  return err === "ssl_error";
+}
 function isFfmpegError(err) {
   const l2 = err.toLowerCase();
   return l2.includes("ffmpeg") && (l2.includes("not installed") || l2.includes("not found") || l2.includes("aborting") || l2.includes("is not installed"));
@@ -7336,7 +7342,7 @@ function getFormatArgs(type, quality) {
     return map[quality] ?? map.mp3_best;
   }
   const q2 = quality;
-  return ["-f", `bestvideo[height<=${q2}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${q2}]+bestaudio/bestvideo+bestaudio`, "--merge-output-format", "mp4"];
+  return ["-f", `bestvideo[height<=${q2}]+bestaudio/bestvideo[height<=${q2}]+bestaudio[ext=m4a]/bestvideo+bestaudio`, "--merge-output-format", "mp4", "--remux-video", "mp4"];
 }
 function getFormatLabel(type, quality) {
   if (type === "audio") {
@@ -7945,7 +7951,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-dot" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-ready", children: t2.status_ready })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.0.5" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.0.7" })
     ] })
   ] });
 }
@@ -8318,7 +8324,7 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
 }
 const STATUS_COLOR = { pending: "#60A5FA", downloading: "#4ADE80", processing: "#FACC15", complete: "#4ADE80", error: "#EF4444", cancelled: "#475569" };
 const STATUS_LABEL = (t2) => ({ pending: t2.st_pending, downloading: t2.st_downloading, processing: t2.st_processing, complete: t2.st_complete, error: t2.st_error, cancelled: t2.st_cancelled });
-function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t2 }) {
+function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t2, lang }) {
   const c = STATUS_COLOR[item.status];
   const labels = STATUS_LABEL(t2);
   const showBar = item.status === "downloading" || item.status === "processing" || item.status === "complete";
@@ -8342,8 +8348,11 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-sdot", style: { background: c } }),
           labels[item.status]
         ] }),
-        item.speed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-speed", children: item.speed }),
-        item.eta && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-eta", children: [
+        item.speed === "ssl_retry" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-ssl-retry", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin", style: { width: 9, height: 9 } }),
+          lang === "ru" ? "Повтор (SSL)…" : "Retrying (SSL)…"
+        ] }) : item.speed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-speed", children: item.speed }),
+        item.speed !== "ssl_retry" && item.eta && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-eta", children: [
           t2.eta,
           " ",
           item.eta
@@ -8358,8 +8367,21 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t
         item.status === "downloading" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dl-glow", style: { left: `${item.progress}%`, background: c } })
       ] }),
       item.error && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dl-err-wrap", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-err", children: item.error }),
-        isCookieError(item.error) && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
+        isAgeGate(item.error) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-err", children: [
+          t2.lang === "ru" ? "Возрастное ограничение — " : "Age-restricted — ",
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
+            t2.err_cookie_hint
+          ] })
+        ] }) : isSslError(item.error) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-err dl-err-ssl", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "9", x2: "12", y2: "13" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "17", x2: "12.01", y2: "17" })
+          ] }),
+          lang === "ru" ? "Ошибка SSL-соединения с Twitch. Попробуй снова — обычно помогает с 1–2 попытки." : "SSL connection error with Twitch. Try again — usually works after 1–2 retries."
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-err", children: item.error }),
+        !isAgeGate(item.error) && !isSslError(item.error) && isCookieError(item.error) && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
@@ -9079,7 +9101,15 @@ function App() {
   }, []);
   reactExports.useEffect(() => {
     if (!window.api) return;
-    const u1 = window.api.onDownloadProgress((d) => setDownloads((p2) => p2.map((x2) => x2.id === d.id ? { ...x2, progress: d.progress, speed: d.speed, eta: d.eta, status: "downloading" } : x2)));
+    const u1 = window.api.onDownloadProgress((d) => setDownloads((p2) => p2.map((x2) => x2.id === d.id ? {
+      ...x2,
+      progress: d.progress,
+      speed: d.speed,
+      eta: d.eta,
+      status: "downloading",
+      // ssl_retry hint — show retrying badge instead of speed
+      ...d.hint === "ssl_retry" ? { speed: "ssl_retry", eta: "" } : {}
+    } : x2)));
     const u2 = window.api.onDownloadComplete((d) => setDownloads((p2) => {
       const updated = p2.map((x2) => x2.id === d.id ? { ...x2, status: "complete", progress: 100 } : x2);
       const item = updated.find((x2) => x2.id === d.id);
@@ -9273,7 +9303,7 @@ function App() {
       /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: `main${view === "stream" ? " main-stream" : ""}`, children: [
         view === "download" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dl-view", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(UrlInput, { onFetch: handleFetch, loading: fetching, t: t2, platform, onPlatformChange: setPlatform }),
-          fetchErr && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fetch-err", children: [
+          fetchErr && !isAgeGate(fetchErr) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fetch-err", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
@@ -9281,6 +9311,25 @@ function App() {
             ] }),
             fetchErr,
             isCookieError(fetchErr) && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "dl-cookie-hint", style: { marginLeft: "10px" }, onClick: handleCookieHint, children: t2.err_cookie_hint })
+          ] }),
+          fetchErr && isAgeGate(fetchErr) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "age-gate-card", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "28", height: "28", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
+            ] }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "age-gate-body", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-title", children: lang === "ru" ? "Видео с возрастным ограничением" : "Age-restricted video" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-desc", children: lang === "ru" ? "YouTube требует авторизацию для этого видео. Войдите в аккаунт прямо здесь — это займёт 10 секунд." : "YouTube requires sign-in for this video. Log in right here — it takes 10 seconds." }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "age-gate-btn", onClick: async () => {
+                setFetchErr("");
+                await handleCookieHint();
+              }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
+                lang === "ru" ? "Войти в YouTube" : "Sign in to YouTube"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-hint", children: lang === "ru" ? "После входа вернись и нажми Fetch снова" : "After signing in, come back and press Fetch again" })
+            ] })
           ] }),
           twitchChannel && /* @__PURE__ */ jsxRuntimeExports.jsx(TwitchChannelBrowser, { channelName: twitchChannel, t: t2, onSelect: handleTwitchSelect, onDownloadMulti: handleTwitchMulti }),
           (videoInfo || fetching) && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -9330,7 +9379,7 @@ function App() {
                 t2.lbl_active
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, onFfmpegHint: handleFfmpegHint, t: t2 }, d.id)) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, onFfmpegHint: handleFfmpegHint, t: t2, lang }, d.id)) })
           ] })
         ] }),
         view === "history" && /* @__PURE__ */ jsxRuntimeExports.jsx(HistoryView, { downloads, t: t2, onClear: async () => {
