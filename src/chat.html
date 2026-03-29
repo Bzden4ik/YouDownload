@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chat</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #18181b;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Inter', system-ui, sans-serif;
+    }
+
+    .titlebar {
+      height: 36px;
+      background: #0e0e10;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 6px 0 12px;
+      flex-shrink: 0;
+      -webkit-app-region: drag;
+      position: relative;
+      user-select: none;
+    }
+    .titlebar::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, rgba(145,70,255,0.6) 50%, transparent 100%);
+    }
+
+    .tb-icon {
+      flex-shrink: 0;
+      color: #9146FF;
+      display: flex;
+      align-items: center;
+      opacity: 0.9;
+    }
+
+    .tb-title {
+      flex: 1;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tb-channel {
+      color: rgba(255,255,255,0.75);
+      font-weight: 700;
+    }
+
+    .tb-controls {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      -webkit-app-region: no-drag;
+      flex-shrink: 0;
+    }
+
+    .tb-btn {
+      width: 32px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      color: rgba(255,255,255,0.28);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s, color 0.12s;
+      flex-shrink: 0;
+    }
+    .tb-btn:hover {
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.8);
+    }
+    .tb-btn-close:hover {
+      background: rgba(239,68,68,0.15);
+      color: #ef4444;
+    }
+
+    webview {
+      flex: 1;
+      width: 100%;
+      border: none;
+      display: flex;
+    }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="tb-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/>
+      </svg>
+    </div>
+    <div class="tb-title">Chat &nbsp;<span class="tb-channel" id="channel-label"></span></div>
+    <div class="tb-controls">
+      <!-- Minimize -->
+      <button class="tb-btn tb-btn-min" id="btn-min" title="Minimize">
+        <svg width="10" height="2" viewBox="0 0 10 2">
+          <rect width="10" height="1.5" y="0.25" rx="0.75" fill="currentColor"/>
+        </svg>
+      </button>
+      <!-- Maximize / Restore -->
+      <button class="tb-btn tb-btn-max" id="btn-max" title="Maximize">
+        <svg id="icon-max" width="10" height="10" viewBox="0 0 10 10">
+          <rect x="0.75" y="0.75" width="8.5" height="8.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+        <svg id="icon-restore" width="10" height="10" viewBox="0 0 10 10" style="display:none">
+          <rect x="2.5" y="0.75" width="6.75" height="6.75" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M0.75 2.75v6.5h6.5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <!-- Close -->
+      <button class="tb-btn tb-btn-close" id="btn-close" title="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <line x1="0.75" y1="0.75" x2="9.25" y2="9.25" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          <line x1="9.25" y1="0.75" x2="0.75" y2="9.25" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <webview id="chat-view"
+    partition="persist:twitch-chat"
+    allowpopups="false"
+    useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36">
+  </webview>
+
+  <script>
+    const { ipcRenderer } = require('electron')
+
+    const params = new URLSearchParams(location.search)
+    const channel = params.get('channel') || ''
+    document.getElementById('channel-label').textContent = channel
+
+    const wv = document.getElementById('chat-view')
+    wv.src = 'https://www.twitch.tv/embed/' + channel + '/chat?parent=localhost&darkpopout'
+
+    // Window controls
+    document.getElementById('btn-min').onclick = () => ipcRenderer.send('chat-minimize')
+    document.getElementById('btn-close').onclick = () => ipcRenderer.send('chat-close')
+
+    const btnMax = document.getElementById('btn-max')
+    const iconMax = document.getElementById('icon-max')
+    const iconRestore = document.getElementById('icon-restore')
+
+    btnMax.onclick = () => ipcRenderer.send('chat-maximize')
+
+    ipcRenderer.on('chat-maximized', (_e, isMaximized) => {
+      if (isMaximized) {
+        iconMax.style.display = 'none'
+        iconRestore.style.display = ''
+        btnMax.title = 'Restore'
+      } else {
+        iconMax.style.display = ''
+        iconRestore.style.display = 'none'
+        btnMax.title = 'Maximize'
+      }
+    })
+
+    // Auto-claim Twitch channel points
+    wv.addEventListener('dom-ready', () => {
+      wv.executeJavaScript(`
+        (function() {
+          function tryClaimBonus() {
+            const btn = document.querySelector('.claimable-bonus__icon') &&
+              document.querySelector('.claimable-bonus__icon').closest('button');
+            if (btn) {
+              btn.click();
+              console.log('[YouDownload] Channel points claimed');
+            }
+          }
+          const observer = new MutationObserver(tryClaimBonus);
+          observer.observe(document.body, { childList: true, subtree: true });
+          tryClaimBonus();
+        })();
+      `).catch(() => {});
+    });
+  </script>
+</body>
+</html>

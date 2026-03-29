@@ -175,6 +175,16 @@
   box-shadow: 0 0 10px rgba(255,59,124,0.15);
 }
 
+[data-theme="apathy"] .sb-toggle {
+  background: rgba(255,59,124,0.07);
+  border-color: rgba(255,59,124,0.2);
+}
+[data-theme="apathy"] .sb-toggle:hover {
+  color: #FF3B7C;
+  background: rgba(255,59,124,0.12);
+  border-color: rgba(255,59,124,0.35);
+}
+
 /* ── Section eyebrow ── */
 [data-theme="apathy"] .section-eyebrow {
   font-family: 'Space Grotesk', system-ui, sans-serif;

@@ -38,6 +38,8 @@ const api = {
   extractBrowserCookies: () => ipcRenderer.invoke('extract-browser-cookies'),
   checkVkSession:        () => ipcRenderer.invoke('check-vk-session'),
   extractVkCookies:      () => ipcRenderer.invoke('extract-vk-cookies'),
+  checkTwitchSession:    () => ipcRenderer.invoke('check-twitch-session'),
+  extractTwitchCookies:  () => ipcRenderer.invoke('extract-twitch-cookies'),
   fetchVideoInfo: (url: string) => ipcRenderer.invoke('fetch-video-info', url),
   fetchPlaylistInfo: (url: string) => ipcRenderer.invoke('fetch-playlist-info', url),
   fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips') => ipcRenderer.invoke('fetch-twitch-channel', channelName, type),
@@ -46,8 +48,10 @@ const api = {
   resetCookiesStale: () => ipcRenderer.invoke('reset-cookies-stale'),
   startDownload:  (p: unknown) => ipcRenderer.invoke('start-download', p),
   cancelDownload: (id: string) => ipcRenderer.invoke('cancel-download', id),
-  openFolder:     (path: string) => ipcRenderer.invoke('open-folder', path),
+  openFolder:      (path: string) => ipcRenderer.invoke('open-folder', path),
   openExternal:    (url: string) => ipcRenderer.invoke('open-external', url),
+  openTwitchChat:  (channel: string) => ipcRenderer.invoke('open-twitch-chat', channel),
+  fetchTwitchFollowedLive: () => ipcRenderer.invoke('fetch-twitch-followed-live'),
   getPreviewPort:  () => ipcRenderer.invoke('get-preview-port'),
 
   // Updates

@@ -375,7 +375,7 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     icon,
-    webPreferences: { preload: path.join(__dirname, "../preload/index.js"), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true }
+    webPreferences: { preload: path.join(__dirname, "../preload/index.js"), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true, backgroundThrottling: false }
   });
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
@@ -564,6 +564,28 @@ electron.ipcMain.handle("extract-vk-cookies", async () => {
     return { success: false, error: String(e) };
   }
 });
+electron.ipcMain.handle("check-twitch-session", async () => {
+  const ses = electron.session.fromPartition("persist:twitch-chat");
+  const cookies = await ses.cookies.get({ domain: "twitch.tv", name: "auth-token" });
+  return { loggedIn: cookies.length > 0 };
+});
+electron.ipcMain.handle("extract-twitch-cookies", async () => {
+  const ses = electron.session.fromPartition("persist:twitch-chat");
+  const loginWin = new electron.BrowserWindow({
+    width: 1080,
+    height: 720,
+    title: "YouDownload — Sign in to Twitch, then close this window",
+    autoHideMenuBar: true,
+    parent: mainWindow ?? void 0,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+  });
+  loginWin.loadURL("https://www.twitch.tv/login");
+  loginWin.show();
+  await new Promise((resolve) => loginWin.on("closed", resolve));
+  const cookies = await ses.cookies.get({ domain: "twitch.tv", name: "auth-token" });
+  if (cookies.length === 0) return { success: false, error: "No Twitch cookies found — make sure you signed in before closing." };
+  return { success: true };
+});
 function enrichFfmpegError(raw) {
   const lower = raw.toLowerCase();
   if (lower.includes("ffmpeg is not installed") || lower.includes("ffmpeg not found")) {
@@ -702,9 +724,11 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       error: "ffmpeg не установлен. Для скачивания отрезков требуется ffmpeg.\nУстановить: winget install ffmpeg  (затем перезапустить приложение)\nИли поместить ffmpeg.exe в ту же папку, что и yt-dlp.exe"
     };
   }
-  if (isSectionDownload && payload.sectionDuration && payload.sectionDuration > 0) {
+  if (isSectionDownload) {
+    const dur = payload.sectionDuration && payload.sectionDuration > 0 ? payload.sectionDuration : 300;
     const startTime = Date.now();
-    const expectedMs = payload.sectionDuration * 1e3 * 1.3;
+    const expectedMs = dur * 1e3 * 1.3;
+    console.log(`[section-timer] запущен, dur=${dur}s, expectedMs=${Math.round(expectedMs / 1e3)}s`);
     sectionTimer = setInterval(() => {
       const elapsed = Date.now() - startTime;
       const pct = Math.min(elapsed / expectedMs * 95, 95);
@@ -770,6 +794,7 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       resolve("error");
     });
     emitter.on("close", () => {
+      console.log(`[yt-dlp close] id=${payload.id}, sectionTimer active=${!!sectionTimer}, cancelled=${activeDownloads.get(payload.id)?.cancelled ?? false}`);
       if (activeDownloads.get(payload.id)?.cancelled) {
         resolve("error");
         return;
@@ -868,6 +893,115 @@ electron.ipcMain.handle("cancel-download", (_e, id) => {
 });
 electron.ipcMain.handle("open-folder", (_e, path2) => electron.shell.openPath(path2));
 electron.ipcMain.handle("open-external", (_e, url) => electron.shell.openExternal(url));
+electron.ipcMain.handle("fetch-twitch-followed-live", async () => {
+  const ses = electron.session.fromPartition("persist:twitch-chat");
+  const authCookies = await ses.cookies.get({ domain: "twitch.tv", name: "auth-token" });
+  const authToken = authCookies[0]?.value;
+  if (!authToken) return { success: false, error: "not_logged_in" };
+  const CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+  const gqlFetch = (body) => new Promise((resolve, reject) => {
+    const req = electron.net.request({ url: "https://gql.twitch.tv/gql", method: "POST" });
+    req.setHeader("Content-Type", "application/json");
+    req.setHeader("Client-ID", CLIENT_ID);
+    req.setHeader("Authorization", `OAuth ${authToken}`);
+    let data = "";
+    req.on("response", (res) => {
+      res.on("data", (c) => {
+        data += c.toString();
+      });
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.write(JSON.stringify(body));
+    req.end();
+  });
+  try {
+    const meResp = await gqlFetch([{ query: "query { currentUser { id login displayName profileImageURL(width: 70) } }" }]);
+    const me = meResp?.[0]?.data?.currentUser;
+    if (!me) return { success: false, error: "not_logged_in" };
+    const liveResp = await gqlFetch([{
+      operationName: "FollowedSideNav_CurrentUser",
+      variables: { first: 100 },
+      query: `query FollowedSideNav_CurrentUser($first: Int) {
+        currentUser {
+          followedLiveUsers(first: $first) {
+            nodes {
+              id login displayName
+              profileImageURL(width: 70)
+              stream {
+                id title viewersCount game { name }
+              }
+            }
+          }
+        }
+      }`
+    }]);
+    const nodes = liveResp?.[0]?.data?.currentUser?.followedLiveUsers?.nodes ?? [];
+    const streams = nodes.map((u) => ({
+      login: u.login,
+      displayName: u.displayName,
+      avatar: u.profileImageURL,
+      title: u.stream?.title ?? "",
+      viewers: u.stream?.viewersCount ?? 0,
+      game: u.stream?.game?.name ?? ""
+    }));
+    return { success: true, streams, me: { login: me.login, displayName: me.displayName, avatar: me.profileImageURL } };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+});
+let chatWindow = null;
+electron.ipcMain.on("chat-minimize", () => chatWindow?.minimize());
+electron.ipcMain.on("chat-maximize", () => {
+  if (!chatWindow) return;
+  if (chatWindow.isMaximized()) {
+    chatWindow.unmaximize();
+    chatWindow.webContents.send("chat-maximized", false);
+  } else {
+    chatWindow.maximize();
+    chatWindow.webContents.send("chat-maximized", true);
+  }
+});
+electron.ipcMain.on("chat-close", () => {
+  chatWindow?.close();
+  chatWindow = null;
+});
+electron.ipcMain.handle("open-twitch-chat", (_e, channel) => {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.focus();
+    return;
+  }
+  chatWindow = new electron.BrowserWindow({
+    width: 360,
+    height: 720,
+    minWidth: 280,
+    minHeight: 400,
+    title: `Chat — ${channel}`,
+    backgroundColor: "#0e0e10",
+    frame: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      backgroundThrottling: false,
+      webviewTag: true,
+      session: electron.session.fromPartition("persist:twitch-chat")
+    }
+  });
+  const chatHtmlPath = electron.app.isPackaged ? path.join(process.resourcesPath, "app.asar", "src", "chat.html") : path.join(electron.app.getAppPath(), "src", "chat.html");
+  chatWindow.loadFile(chatHtmlPath, { query: { channel } });
+  chatWindow.on("maximize", () => chatWindow?.webContents.send("chat-maximized", true));
+  chatWindow.on("unmaximize", () => chatWindow?.webContents.send("chat-maximized", false));
+  chatWindow.on("closed", () => {
+    chatWindow = null;
+  });
+});
 const CURRENT_VERSION = electron.app.getVersion();
 const GITHUB_RELEASES_API = "https://api.github.com/repos/Bzden4ik/YouDownload/releases/latest";
 function fetchJson(url) {
@@ -1002,9 +1136,30 @@ async function autoRefreshVkCookies() {
   } catch {
   }
 }
+electron.app.commandLine.appendSwitch("enable-gpu-rasterization");
+electron.app.commandLine.appendSwitch("enable-zero-copy");
+electron.app.commandLine.appendSwitch("ignore-gpu-blocklist");
+electron.app.commandLine.appendSwitch("disable-software-rasterizer");
+electron.app.commandLine.appendSwitch("use-angle", "d3d11");
+electron.app.commandLine.appendSwitch("enable-features", [
+  "D3D11VideoDecoder",
+  // аппаратный декодинг H.264/AVC через D3D11
+  "VaapiVideoDecoder",
+  // fallback для Intel/AMD через VAAPI
+  "PlatformHEVCDecoderSupport",
+  // HEVC/H.265 если стрим в этом формате
+  "HardwareMediaKeyHandling",
+  "CanvasOopRasterization",
+  "EnableDrDc"
+  // Double-buffered rendering — меньше разрывов
+].join(","));
+electron.app.commandLine.appendSwitch("disable-gpu-vsync");
+electron.app.commandLine.appendSwitch("enable-hardware-overlays", "single-fullscreen,single-on-top,underlay");
+electron.app.commandLine.appendSwitch("renderer-process-limit", "100");
+electron.app.commandLine.appendSwitch("disable-renderer-backgrounding");
 electron.app.whenReady().then(async () => {
   electron.session.fromPartition("persist:preview").setPermissionRequestHandler((_wc, permission, callback) => {
-    const allowed = ["media", "autoplay", "fullscreen"];
+    const allowed = ["media", "autoplay", "fullscreen", "mediaKeySystem"];
     callback(allowed.includes(permission));
   });
   electron.app.on("web-contents-created", (_, wc) => {

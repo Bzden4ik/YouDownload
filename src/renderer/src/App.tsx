@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { type Lang, type Translations, translations } from './i18n'
-import { loadState, saveState, loadHistory, appendHistory, clearHistory, type PersistedDownload } from './storage'
+import { loadState, saveState, loadHistory, appendHistory, clearHistory, loadStreamSessions, saveStreamSessions, loadFavStreamers, saveFavStreamers, type PersistedDownload, type StreamSession } from './storage'
 
 // ═══════════════════════ TYPES ═══════════════════════
 
@@ -45,6 +45,7 @@ type Platform = 'youtube' | 'twitch' | 'vk'
 interface DownloadItem { id: string; url: string; title: string; thumbnail?: string; formatLabel: string; status: DownloadStatus; progress: number; speed?: string; eta?: string; error?: string; createdAt: number }
 interface AppSettings { downloadPath: string; defaultFormat: string; defaultQuality: string; concurrentDownloads: number; cookiesFromBrowser: string; cookiesFile: string }
 interface StreamMarker { id: string; name: string; description: string; streamPos: number; createdAt: number }
+interface LiveStream { login: string; displayName: string; avatar: string; title: string; viewers: number; game: string }
 
 // ═══════════════════════ HELPERS ═══════════════════════
 
@@ -725,6 +726,8 @@ declare global {
       extractBrowserCookies: () => Promise<{ success: boolean; error?: string }>
       checkVkSession: () => Promise<{ loggedIn: boolean }>
       extractVkCookies: () => Promise<{ success: boolean; error?: string }>
+      checkTwitchSession: () => Promise<{ loggedIn: boolean }>
+      extractTwitchCookies: () => Promise<{ success: boolean; error?: string }>
       fetchVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>
       fetchPlaylistInfo: (url: string) => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
       fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips') => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
@@ -732,6 +735,8 @@ declare global {
       cancelDownload: (id: string) => Promise<{ success: boolean }>
       openFolder: (path: string) => Promise<void>
       openExternal: (url: string) => Promise<void>
+      openTwitchChat: (channel: string) => Promise<void>
+      fetchTwitchFollowedLive: () => Promise<{ success: boolean; streams?: LiveStream[]; me?: { login: string; displayName: string; avatar: string }; error?: string }>
       getPreviewPort: () => Promise<number>
       onDownloadProgress: (cb: (d: { id: string; progress: number; speed: string; eta: string; hint?: string }) => void) => () => void
       onDownloadComplete: (cb: (d: { id: string }) => void) => () => void
@@ -795,8 +800,9 @@ function TitleBar() {
 
 // ═══════════════════════ SIDEBAR ═══════════════════════
 
-function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
+function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, onToggleCollapse }: {
   view: View; onChange: (v: View) => void; activeCount: number; lang: Lang; onLangToggle: () => void
+  collapsed: boolean; onToggleCollapse: () => void
 }) {
   const t = translations[lang]
   const NAV: { id: View; label: string; icon: JSX.Element }[] = [
@@ -806,29 +812,45 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
     { id:'settings', label:t.nav_settings, icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> },
   ]
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${collapsed?' sb-collapsed':''}`}>
       <div className="sb-logo">
         <StarLogo size={30} cls="sb-star"/>
-        <div className="sb-wordmark"><span className="sb-you">YOU</span><span className="sb-dl">DOWNLOAD</span></div>
+        {!collapsed && <div className="sb-wordmark"><span className="sb-you">YOU</span><span className="sb-dl">DOWNLOAD</span></div>}
+        <button className="sb-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            {collapsed
+              ? <polyline points="9 18 15 12 9 6"/>
+              : <polyline points="15 18 9 12 15 6"/>}
+          </svg>
+        </button>
       </div>
       <div className="sb-divider"/>
       <nav className="sb-nav">
         {NAV.map(item => (
-          <button key={item.id} className={`sb-item ${view===item.id?'sb-item-active':''}`} onClick={() => onChange(item.id)}>
+          <button key={item.id} className={`sb-item ${view===item.id?'sb-item-active':''}`} onClick={() => onChange(item.id)}
+            title={collapsed ? item.label : undefined}>
             <span className="sb-indicator"/><span className="sb-icon">{item.icon}</span>
-            <span className="sb-label">{item.label}</span>
+            {!collapsed && <span className="sb-label">{item.label}</span>}
             {item.id==='download' && activeCount>0 && <span className="sb-badge">{activeCount}</span>}
           </button>
         ))}
       </nav>
       <div className="sb-footer">
-        <button className="lang-toggle" onClick={onLangToggle}>
-          <span className={`lang-opt ${lang==='en'?'lang-opt-on':''}`}>EN</span>
-          <span className="lang-sep"/>
-          <span className={`lang-opt ${lang==='ru'?'lang-opt-on':''}`}>RU</span>
-        </button>
-        <div className="sb-status-row"><span className="sb-dot"/><span className="sb-ready">{t.status_ready}</span></div>
-        <div className="sb-version">v1.0.7</div>
+        {!collapsed && (
+          <button className="lang-toggle" onClick={onLangToggle}>
+            <span className={`lang-opt ${lang==='en'?'lang-opt-on':''}`}>EN</span>
+            <span className="lang-sep"/>
+            <span className={`lang-opt ${lang==='ru'?'lang-opt-on':''}`}>RU</span>
+          </button>
+        )}
+        {collapsed && (
+          <button className="lang-toggle" onClick={onLangToggle} title={lang === 'en' ? 'Switch to RU' : 'Switch to EN'}
+            style={{justifyContent:'center', padding:'5px 0'}}>
+            <span className="lang-opt lang-opt-on" style={{flex:'unset', padding:'4px 6px'}}>{lang.toUpperCase()}</span>
+          </button>
+        )}
+        <div className="sb-status-row"><span className="sb-dot"/>{!collapsed && <span className="sb-ready">{t.status_ready}</span>}</div>
+        {!collapsed && <div className="sb-version">v1.0.7</div>}
       </div>
     </aside>
   )
@@ -1313,11 +1335,15 @@ function ThemeCards({ current, onChange, t }: { current: Theme; onChange: (th: T
 
 // ═══════════════════════ SETTINGS VIEW ═══════════════════════
 
-function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange, onManualCheck }: {
+function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange, onManualCheck, twitchLoggedIn, twitchExtractState, twitchExtractError, onTwitchExtract }: {
   settings: AppSettings; onSave: (s: AppSettings) => void; onPickFolder: () => void
   t: Translations; theme: Theme; onThemeChange: (th: Theme) => void; highlightCookies: boolean
   autoCheckUpdates: boolean; onAutoCheckChange: (v: boolean) => void
   onManualCheck: () => void
+  twitchLoggedIn: boolean
+  twitchExtractState: 'idle'|'busy'|'ok'|'fail'
+  twitchExtractError: string
+  onTwitchExtract: () => void
 }) {
   const [local, setLocal] = useState(settings)
   const [updateState, setUpdateState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
@@ -1362,7 +1388,7 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange,
     else { setVkExtractState('fail'); setVkExtractError(r?.error||'') }
     setTimeout(() => setVkExtractState('idle'), 5000)
   }
-
+  console.log('[SettingsView] render', { twitchLoggedIn, twitchExtractState })
   return (
     <div className="settings-view">
       <h2 className="section-title">{t.set_title}</h2>
@@ -1403,6 +1429,17 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange,
            : <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M21.3 0H2.7C1.2 0 0 1.2 0 2.7v18.6C0 22.8 1.2 24 2.7 24h18.6c1.5 0 2.7-1.2 2.7-2.7V2.7C24 1.2 22.8 0 21.3 0zm-1.6 16.9h-2c-.8 0-1-.6-2.3-1.9-1.1-1.2-1.6-1.3-1.9-1.3-.4 0-.5.1-.5.7v1.7c0 .5-.2.8-1.4.8-2 0-4.2-1.2-5.8-3.5C4.3 10.6 3.6 8 3.6 7.5c0-.3.1-.5.7-.5h2c.5 0 .7.2.9.8.9 2.5 2.5 4.7 3.1 4.7.2 0 .3-.1.3-.7V9c-.1-1.5-.9-1.6-.9-2.1 0-.3.2-.5.6-.5h3.1c.4 0 .6.2.6.8v3.5c0 .4.2.6.3.6.2 0 .4-.1.8-.5 1.3-1.5 2.2-3.7 2.2-3.7.1-.3.4-.6.9-.6h2c.6 0 .7.3.6.8-.3 1.2-2.8 4.8-2.8 4.8-.2.3-.3.5 0 .9.2.3.9.9 1.4 1.5.9.9 1.5 1.7 1.7 2.2.2.5-.1.8-.6.8z"/></svg>{t.set_extract_vk_cookies}{vkLoggedIn&&<span className="set-extract-browser">✓ signed in</span>}</>}
         </button>
         {vkExtractState==='fail' && vkExtractError && <p className="set-extract-error">{vkExtractError}</p>}
+      </div>
+      <div className="set-group">
+        <div className="set-label">{t.set_extract_twitch_cookies}</div>
+        <p className="set-hint">{t.set_extract_twitch_cookies_hint}</p>
+        <button className={`set-extract-btn ${twitchExtractState==='ok'?'set-extract-ok':twitchExtractState==='fail'?'set-extract-fail':''}`} onClick={onTwitchExtract} disabled={twitchExtractState==='busy'}>
+          {twitchExtractState==='busy' ? <><span className="spin"/>{t.set_extracting}</>
+           : twitchExtractState==='ok' ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>{t.set_extract_twitch_ok}</>
+           : twitchExtractState==='fail' ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{t.set_extract_twitch_fail}</>
+           : <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>{t.set_extract_twitch_cookies}{twitchLoggedIn&&<span className="set-extract-browser">✓ signed in</span>}</>}
+        </button>
+        {twitchExtractState==='fail' && twitchExtractError && <p className="set-extract-error">{twitchExtractError}</p>}
       </div>
       <div className="set-group">
         <div className="set-label">{t.set_auto_update}</div>
@@ -1543,6 +1580,188 @@ function SetupOverlay({ onSetup, loading, error, t }: { onSetup: () => void; loa
 
 // ═══════════════════════ STREAM VIEW ═══════════════════════
 
+// ═══════════════════════ FOLLOWED LIVE PANEL ═══════════════════════
+
+function formatViewers(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
+  return String(n)
+}
+
+function FollowedLivePanel({ onSelect, t }: { onSelect: (channel: string) => void; t: Translations }) {
+  const [streams, setStreams] = useState<LiveStream[]>([])
+  const [me, setMe] = useState<{ login: string; displayName: string; avatar: string } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastFetch, setLastFetch] = useState(0)
+  const [favs, setFavs] = useState<string[]>([])
+
+  // Load favorites on mount
+  useEffect(() => { loadFavStreamers().then(setFavs) }, [])
+
+  const toggleFav = async (login: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = favs.includes(login) ? favs.filter(l => l !== login) : [...favs, login]
+    setFavs(next)
+    await saveFavStreamers(next)
+  }
+
+  const fetch = async () => {
+    setLoading(true); setError(null)
+    const r = await window.api.fetchTwitchFollowedLive()
+    setLoading(false)
+    if (r.success) {
+      setStreams(r.streams ?? [])
+      setMe(r.me ?? null)
+      setLastFetch(Date.now())
+    } else {
+      setError(r.error ?? 'error')
+    }
+  }
+
+  useEffect(() => { fetch() }, [])
+
+  // Refresh every 90 seconds while mounted
+  useEffect(() => {
+    const iv = setInterval(() => fetch(), 90_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  // Sort: favorites first, then by viewers
+  const sorted = [...streams].sort((a, b) => {
+    const aFav = favs.includes(a.login) ? 1 : 0
+    const bFav = favs.includes(b.login) ? 1 : 0
+    if (bFav !== aFav) return bFav - aFav
+    return b.viewers - a.viewers
+  })
+
+  // Also show offline favorites as placeholders
+  const offlineFavs = favs.filter(login => !streams.find(s => s.login === login))
+
+  if (error === 'not_logged_in') {
+    return (
+      <div className="flp-not-logged">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
+        <span>{t.flp_login_hint}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flp-wrap">
+      <div className="flp-head">
+        {me && (
+          <div className="flp-me">
+            <img src={me.avatar} className="flp-me-avatar" alt=""/>
+            <span className="flp-me-name">{me.displayName}</span>
+          </div>
+        )}
+        <span className="flp-title">
+          {t.flp_title}
+          {streams.length > 0 && <span className="flp-count">{streams.length}</span>}
+        </span>
+        <button className="flp-refresh" onClick={fetch} disabled={loading} title={t.flp_refresh}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+            style={loading ? { animation: 'spin 0.7s linear infinite' } : undefined}>
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
+      </div>
+
+      {loading && streams.length === 0 && (
+        <div className="flp-loading"><span className="spin"/></div>
+      )}
+
+      {!loading && streams.length === 0 && !error && favs.length === 0 && (
+        <div className="flp-empty">{t.flp_empty}</div>
+      )}
+
+      {error && error !== 'not_logged_in' && (
+        <div className="flp-error">{error}</div>
+      )}
+
+      <div className="flp-list">
+        {/* Live streams (sorted: favs first) */}
+        {sorted.map(s => {
+          const isFav = favs.includes(s.login)
+          return (
+            <button key={s.login} className={`flp-item${isFav ? ' flp-item-fav' : ''}`} onClick={() => onSelect(s.login)}>
+              <div className="flp-avatar-wrap">
+                <img src={s.avatar} className="flp-avatar" alt=""/>
+                <span className="flp-live-dot"/>
+              </div>
+              <div className="flp-info">
+                <div className="flp-name-row">
+                  <span className="flp-name">{s.displayName}</span>
+                  {isFav && (
+                    <svg className="flp-fav-badge" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                  )}
+                </div>
+                <span className="flp-game">{s.game}</span>
+                <span className="flp-ttl">{s.title}</span>
+              </div>
+              <div className="flp-right">
+                <div className="flp-viewers">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                  {formatViewers(s.viewers)}
+                </div>
+                <button
+                  className={`flp-star-btn${isFav ? ' flp-star-on' : ''}`}
+                  onClick={e => toggleFav(s.login, e)}
+                  title={isFav ? (t.flp_unfav ?? 'Remove from favorites') : (t.flp_fav ?? 'Add to favorites')}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                  </svg>
+                </button>
+              </div>
+            </button>
+          )
+        })}
+
+        {/* Offline favorites pinned at bottom */}
+        {offlineFavs.map(login => (
+          <button key={`offline-${login}`} className="flp-item flp-item-offline" onClick={() => onSelect(login)}>
+            <div className="flp-avatar-wrap">
+              <div className="flp-avatar-ph">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" opacity="0.4"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
+              </div>
+              <span className="flp-offline-dot"/>
+            </div>
+            <div className="flp-info">
+              <div className="flp-name-row">
+                <span className="flp-name flp-name-dim">{login}</span>
+                <svg className="flp-fav-badge" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+              </div>
+              <span className="flp-offline-label">{t.flp_offline ?? 'Offline'}</span>
+            </div>
+            <div className="flp-right">
+              <button
+                className="flp-star-btn flp-star-on"
+                onClick={e => toggleFav(login, e)}
+                title={t.flp_unfav ?? 'Remove from favorites'}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+              </button>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {lastFetch > 0 && (
+        <div className="flp-updated">
+          {t.flp_updated} {new Date(lastFetch).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function normalizeTwitchChannel(val: string): string {
   const v = val.trim()
   if (!v) return ''
@@ -1559,15 +1778,18 @@ function normalizeTwitchChannel(val: string): string {
   return v.toLowerCase()
 }
 
-function StreamView({ t, downloadPath, persistedInput, persistedChannelName, persistedMarkers, onInputChange, onChannelChange, onMarkersChange, onStartDownload }: {
+function StreamView({ t, downloadPath, persistedInput, persistedChannelName, persistedMarkers, streamSessions, hidden, onInputChange, onChannelChange, onMarkersChange, onSessionsChange, onStartDownload }: {
   t: Translations
   downloadPath: string
   persistedInput: string
   persistedChannelName: string | null
   persistedMarkers: StreamMarker[]
+  streamSessions: StreamSession[]
+  hidden: boolean
   onInputChange: (v: string) => void
   onChannelChange: (v: string | null) => void
   onMarkersChange: (v: StreamMarker[]) => void
+  onSessionsChange: (v: StreamSession[] | ((prev: StreamSession[]) => StreamSession[])) => void
   onStartDownload: (item: DownloadItem, formatArgs: string[]) => void
 }) {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null)
@@ -1576,8 +1798,30 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
   const [showAddForm, setShowAddForm] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [streamTab, setStreamTab] = useState<'live' | 'sessions'>('live')
+  const [streamTitle, setStreamTitle] = useState<string | null>(null)
   const webviewRef = useRef<any>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const currentSessionId = useRef<string | null>(null)
+
+  // Восстанавливаем ID текущей сессии если канал уже был открыт
+  useEffect(() => {
+    if (persistedChannelName && !currentSessionId.current) {
+      const existing = streamSessions.find(s => s.channelName === persistedChannelName)
+      currentSessionId.current = existing ? existing.id : `sess_${persistedChannelName}_${Date.now()}`
+    }
+  }, [])
+
+  const saveCurrentSession = (markers: StreamMarker[], channel: string | null, sessions: StreamSession[]) => {
+    if (!channel || !currentSessionId.current) return sessions
+    const id = currentSessionId.current
+    const idx = sessions.findIndex(s => s.id === id)
+    if (idx >= 0) {
+      return sessions.map(s => s.id === id ? { ...s, markers, streamTitle: streamTitle ?? s.streamTitle, lastActiveAt: Date.now() } : s)
+    }
+    const newSess: StreamSession = { id, channelName: channel, streamTitle: streamTitle ?? undefined, startedAt: Date.now(), lastActiveAt: Date.now(), markers }
+    return [newSess, ...sessions]
+  }
 
   // При маунте — восстанавливаем плеер если уже был открыт канал
   useEffect(() => {
@@ -1589,6 +1833,44 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
       })
     }
   }, [])
+
+  // Получаем название трансляции через Twitch GQL API
+  useEffect(() => {
+    if (!persistedChannelName) return
+    const fetchTitle = async () => {
+      try {
+        const res = await fetch('https://gql.twitch.tv/gql', {
+          method: 'POST',
+          headers: { 'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko', 'Content-Type': 'application/json' },
+          body: JSON.stringify([{ query: `query{user(login:"${persistedChannelName}"){stream{title}}}` }])
+        })
+        const data = await res.json()
+        const title = data?.[0]?.data?.user?.stream?.title
+        if (typeof title === 'string' && title.trim()) setStreamTitle(title.trim())
+      } catch { /* ignore */ }
+    }
+    fetchTitle()
+    // Обновляем каждые 2 минуты (стримеры меняют title)
+    const iv = setInterval(fetchTitle, 120_000)
+    return () => clearInterval(iv)
+  }, [persistedChannelName])
+
+  // При получении streamTitle — сразу сохраняем в сессию
+  useEffect(() => {
+    if (!streamTitle || !persistedChannelName || !currentSessionId.current) return
+    onSessionsChange(prev => {
+      const id = currentSessionId.current!
+      const idx = prev.findIndex(s => s.id === id)
+      if (idx >= 0) {
+        return prev.map(s => s.id === id ? { ...s, streamTitle } : s)
+      }
+      const newSess: StreamSession = {
+        id, channelName: persistedChannelName, streamTitle,
+        startedAt: Date.now(), lastActiveAt: Date.now(), markers: persistedMarkers
+      }
+      return [newSess, ...prev]
+    })
+  }, [streamTitle])
 
   // Подписка на dom-ready
   useEffect(() => {
@@ -1646,10 +1928,31 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
   const handleWatch = () => {
     const ch = normalizeTwitchChannel(persistedInput)
     if (!ch) return
+    // Сохраняем текущую сессию перед переключением
+    if (persistedChannelName && persistedChannelName !== ch) {
+      const updated = saveCurrentSession(persistedMarkers, persistedChannelName, streamSessions)
+      onSessionsChange(updated)
+    }
+    // Если тот же канал — переиспользуем существующую сессию, не создаём новую
+    if (persistedChannelName === ch && currentSessionId.current) {
+      // просто перезапускаем плеер
+      setPlayerReady(false)
+      setStreamPos(0)
+      window.api.getPreviewPort().then(port => {
+        setEmbedUrl(`http://localhost:${port}/?channel=${ch}`)
+      }).catch(() => {
+        setEmbedUrl(`https://player.twitch.tv/?channel=${ch}&parent=localhost&autoplay=true`)
+      })
+      return
+    }
+    // Новый канал — ищем существующую сессию или создаём id
+    const existingSess = streamSessions.find(s => s.channelName === ch)
+    currentSessionId.current = existingSess ? existingSess.id : `sess_${ch}_${Date.now()}`
     onChannelChange(ch)
     setPlayerReady(false)
     setStreamPos(0)
-    onMarkersChange([])
+    setStreamTitle(null)
+    onMarkersChange(existingSess ? existingSess.markers : [])
     window.api.getPreviewPort().then(port => {
       setEmbedUrl(`http://localhost:${port}/?channel=${ch}`)
     }).catch(() => {
@@ -1660,27 +1963,37 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
   const addMarker = () => {
     if (!newName.trim()) return
     const m: StreamMarker = { id: genId(), name: newName.trim(), description: newDesc.trim(), streamPos, createdAt: Date.now() }
-    onMarkersChange([...persistedMarkers, m])
+    const newMarkers = [...persistedMarkers, m]
+    onMarkersChange(newMarkers)
+    onSessionsChange(saveCurrentSession(newMarkers, persistedChannelName, streamSessions))
     setNewName(''); setNewDesc(''); setShowAddForm(false)
   }
 
   const addPresetMarker = (label: string) => {
-    onMarkersChange([...persistedMarkers, { id: genId(), name: label, description: '', streamPos, createdAt: Date.now() }])
+    const newMarkers = [...persistedMarkers, { id: genId(), name: label, description: '', streamPos, createdAt: Date.now() }]
+    onMarkersChange(newMarkers)
+    onSessionsChange(saveCurrentSession(newMarkers, persistedChannelName, streamSessions))
   }
 
-  const deleteMarker = (id: string) => onMarkersChange(persistedMarkers.filter(m => m.id !== id))
+  const deleteMarker = (id: string) => {
+    const newMarkers = persistedMarkers.filter(m => m.id !== id)
+    onMarkersChange(newMarkers)
+    onSessionsChange(saveCurrentSession(newMarkers, persistedChannelName, streamSessions))
+  }
 
-  const cutLast5Min = () => {
+  const cutLastN = (durSec: number) => {
     if (!persistedChannelName) return
-    const endSec = streamPos
-    const startSec = Math.max(0, endSec - 300)
     const url = `https://www.twitch.tv/${persistedChannelName}`
     const id = genId()
-    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`]
+    const PADDING = 25
+    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*-${durSec + PADDING}`]
+    const endSec = streamPos
+    const startSec = Math.max(0, endSec - durSec)
+    const label = durSec < 60 ? `${durSec}s` : `${durSec / 60}m`
     onStartDownload({
       id, url,
-      title: `${persistedChannelName} — last 5 min`,
-      formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      title: `${persistedChannelName} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      formatLabel: `Source · last ${label}`,
       status: 'pending', progress: 0, createdAt: Date.now()
     }, argsWithSection)
   }
@@ -1690,12 +2003,14 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
     const endSec = streamPos
     const startSec = m.streamPos
     if (endSec <= startSec) return
+    const durationSec = endSec - startSec
     const url = `https://www.twitch.tv/${persistedChannelName}`
     const id = genId()
-    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`]
+    // +25 сек запаса на рекламу в начале
+    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*-${durationSec + 25}`]
     onStartDownload({
       id, url,
-      title: `${persistedChannelName} — ${m.name}`,
+      title: `${persistedChannelName} — ${m.name} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
       formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
       status: 'pending', progress: 0, createdAt: Date.now()
     }, argsWithSection)
@@ -1703,8 +2018,48 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
 
   const PRESETS = ['Highlight', 'Fail', 'Clip this', 'Important']
 
+  const deleteSession = (id: string) => {
+    const updated = streamSessions.filter(s => s.id !== id)
+    onSessionsChange(updated)
+  }
+
+  // Вырезать отрезок из сохранённой сессии вокруг маркера:
+  // direction='back'  → [markerPos - durSec ... markerPos]
+  // direction='fwd'   → [markerPos ... markerPos + durSec]
+  const cutFromSessionMarker = (channelName: string, markerPos: number, markerName: string, durSec: number, direction: 'back' | 'fwd') => {
+    const url = `https://www.twitch.tv/${channelName}`
+    const id = genId()
+    const PADDING = 25 // запас на рекламу
+    let startSec: number, endSec: number, sectionArg: string
+    if (direction === 'back') {
+      startSec = Math.max(0, markerPos - durSec)
+      endSec   = markerPos
+      sectionArg = `*-${durSec + PADDING}`
+    } else {
+      startSec = markerPos
+      endSec   = markerPos + durSec
+      // для fwd нужен реальный offset — используем timestamp-диапазон
+      sectionArg = `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`
+    }
+    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', sectionArg]
+    onStartDownload({
+      id, url,
+      title: `${channelName} — ${markerName} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      status: 'pending', progress: 0, createdAt: Date.now()
+    }, argsWithSection)
+  }
+
+  const CUT_DURATIONS = [
+    { label: '30s', sec: 30 },
+    { label: '1m',  sec: 60 },
+    { label: '2m',  sec: 120 },
+    { label: '3m',  sec: 180 },
+    { label: '5m',  sec: 300 },
+  ]
+
   return (
-    <div className="stream-view">
+    <div className="stream-view" style={hidden ? {display:'none'} : undefined}>
       {/* Input row */}
       <div className="stream-input-row">
         <div className="stream-input-wrap">
@@ -1724,54 +2079,170 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
         </button>
       </div>
 
-      {!persistedChannelName && (
-        <div className="stream-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.35"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
-          <p>{t.stream_hint}</p>
+      {/* Вкладки: Эфир / Просмотренные */}
+      <div className="stream-tabs">
+        <button className={`stream-tab-btn ${streamTab === 'live' ? 'active' : ''}`} onClick={() => setStreamTab('live')}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg>
+          {t.stream_tab_live}
+        </button>
+        <button className={`stream-tab-btn ${streamTab === 'sessions' ? 'active' : ''}`} onClick={() => setStreamTab('sessions')}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+          {t.stream_tab_sessions}
+          {streamSessions.length > 0 && <span className="stream-tab-count">{streamSessions.length}</span>}
+        </button>
+      </div>
+
+      {/* Таб: Просмотренные сессии */}
+      {streamTab === 'sessions' && (
+        <div className="stream-sessions">
+          {streamSessions.length === 0 ? (
+            <div className="stream-sessions-empty">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.3"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              <p>{t.stream_sessions_empty}</p>
+            </div>
+          ) : (
+            streamSessions.map(sess => (
+              <div key={sess.id} className="stream-session-card">
+                <div className="ssc-header">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="#9146FF"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
+                  <div className="ssc-header-info">
+                    <div className="ssc-channel-row">
+                      <span className="ssc-channel">{sess.channelName}</span>
+                      <span className="ssc-date">{new Date(sess.lastActiveAt).toLocaleDateString()}</span>
+                    </div>
+                    {sess.streamTitle && <span className="ssc-stream-title">{sess.streamTitle}</span>}
+                  </div>
+                  {sess.markers.length > 0
+                    ? <span className="ssc-marker-count">{sess.markers.length} {t.stream_session_markers}</span>
+                    : <span className="ssc-no-markers">{t.stream_session_no_markers}</span>}
+                  <button className="ssc-delete" onClick={() => deleteSession(sess.id)}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                    {t.stream_session_delete}
+                  </button>
+                </div>
+                {sess.markers.length > 0 && (
+                  <div className="ssc-markers">
+                    {sess.markers.map(m => (
+                      <div key={m.id} className="ssc-marker">
+                        <div className="ssc-marker-dot"/>
+                        <div className="ssc-marker-body">
+                          <div className="ssc-marker-top">
+                            <span className="ssc-marker-name">{m.name}</span>
+                            {m.description && <span className="ssc-marker-desc">{m.description}</span>}
+                            <span className="ssc-marker-time">{secsToTimestamp(m.streamPos)}</span>
+                          </div>
+                          <div className="ssc-cut-row">
+                            <span className="ssc-cut-label">← back</span>
+                            {CUT_DURATIONS.map(d => (
+                              <button key={`b-${d.sec}`} className="ssc-cut-btn" onClick={() => cutFromSessionMarker(sess.channelName, m.streamPos, m.name, d.sec, 'back')}>
+                                {d.label}
+                              </button>
+                            ))}
+                            <span className="ssc-cut-sep"/>
+                            <span className="ssc-cut-label">fwd →</span>
+                            {CUT_DURATIONS.map(d => (
+                              <button key={`f-${d.sec}`} className="ssc-cut-btn ssc-cut-btn-fwd" onClick={() => cutFromSessionMarker(sess.channelName, m.streamPos, m.name, d.sec, 'fwd')}>
+                                {d.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       )}
 
-      {persistedChannelName && embedUrl && (
+      {/* Таб: Эфир */}
+      {streamTab === 'live' && !persistedChannelName && (
+        <FollowedLivePanel
+          t={t}
+          onSelect={ch => {
+            onInputChange(ch)
+            // trigger watch inline
+            const existingSess = streamSessions.find(s => s.channelName === ch)
+            currentSessionId.current = existingSess ? existingSess.id : `sess_${ch}_${Date.now()}`
+            onChannelChange(ch)
+            setPlayerReady(false)
+            setStreamPos(0)
+            setStreamTitle(null)
+            onMarkersChange(existingSess ? existingSess.markers : [])
+            window.api.getPreviewPort().then(port => {
+              setEmbedUrl(`http://localhost:${port}/?channel=${ch}`)
+            }).catch(() => {
+              setEmbedUrl(`https://player.twitch.tv/?channel=${ch}&parent=localhost&autoplay=true`)
+            })
+          }}
+        />
+      )}
+
+      {streamTab === 'live' && persistedChannelName && embedUrl && (
         <div className="stream-body">
           {/* Player */}
           <div className="stream-player-wrap">
-            <div className="stream-player-header">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="#9146FF"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
-              <span className="stream-channel-label">{persistedChannelName}</span>
-              <span className="stream-live-badge">{t.stream_live_badge}</span>
-              <span className="stream-timer">{secsToTimestamp(streamPos)}</span>
-              <button className="stream-cut5-btn" onClick={cutLast5Min} disabled={streamPos < 30}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
-                {t.stream_cut_5min}
+            <div className="stream-player-header-leftright">
+              <button className="stream-back-btn" onClick={() => { onChannelChange(null); setEmbedUrl(null); setPlayerReady(false); setStreamPos(0) }} title={t.stream_back ?? 'Back'}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polyline points="15 18 9 12 15 6"/></svg>
+                {t.stream_back ?? 'Back'}
               </button>
+                <div className="stream-player-header">
+                  <div className="stream-player-main">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="#9146FF"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
+                    <div className="stream-channel-info">
+                      <span className="stream-channel-label">{persistedChannelName}</span>
+                      {streamTitle && <span className="stream-channel-title">{streamTitle}</span>}
+                    </div>
+                    <span className="stream-live-badge">{t.stream_live_badge}</span>
+                    <span className="stream-timer">{secsToTimestamp(streamPos)}</span>
+                    <div className="stream-cut-group">
+                      <span className="stream-cut-label">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
+                        {t.stream_cut_label}
+                      </span>
+                      {CUT_DURATIONS.map(d => (
+                        <button key={d.sec} className="stream-cut-btn" onClick={() => cutLastN(d.sec)} disabled={streamPos < d.sec}>
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button className={`stream-chat-btn`} onClick={() => window.api.openTwitchChat(persistedChannelName!)}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    {t.stream_chat}
+                  </button>
+                </div>
+              </div>
+              <div className="stream-webview-wrap">
+                {!playerReady && <div className="stream-player-loading"><span className="spin"/></div>}
+                <webview
+                  ref={webviewRef}
+                  src={embedUrl}
+                  className="stream-webview"
+                  partition="persist:preview"
+                  allowpopups={false}
+                  useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                  style={{ visibility: playerReady ? 'visible' : 'hidden', width: '100%', height: '100%' }}
+                />
+              </div>
             </div>
-            <div className="stream-webview-wrap">
-              {!playerReady && <div className="stream-player-loading"><span className="spin"/></div>}
-              <webview
-                ref={webviewRef}
-                src={embedUrl}
-                className="stream-webview"
-                partition="persist:preview"
-                allowpopups={false}
-                useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                style={{ visibility: playerReady ? 'visible' : 'hidden', width: '100%', height: '100%' }}
-              />
-            </div>
-          </div>
 
-          {/* Markers panel */}
-          <div className="stream-markers-panel">
-            <div className="stream-markers-head">
-              <span className="stream-markers-title">{t.stream_markers_title}</span>
-              <span className="stream-markers-count">{persistedMarkers.length}</span>
-            </div>
-            <div className="stream-presets">
-              {PRESETS.map(label => (
-                <button key={label} className="stream-preset-btn" onClick={() => addPresetMarker(label)} disabled={!playerReady}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            {/* Markers panel */}
+            <div className="stream-markers-panel">
+              <div className="stream-markers-head">
+                <span className="stream-markers-title">{t.stream_markers_title}</span>
+                <span className="stream-markers-count">{persistedMarkers.length}</span>
+              </div>
+              <div className="stream-presets">
+                {PRESETS.map(label => (
+                  <button key={label} className="stream-preset-btn" onClick={() => addPresetMarker(label)} disabled={!playerReady}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             {!showAddForm ? (
               <button className="stream-add-marker-btn" onClick={() => setShowAddForm(true)} disabled={!playerReady}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1812,7 +2283,7 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
                 </div>
               ))}
             </div>
-          </div>
+          </div>{/* stream-markers-panel */}
         </div>
       )}
     </div>
@@ -1845,8 +2316,13 @@ export default function App() {
   const [streamInput, setStreamInput] = useState('')
   const [streamChannelName, setStreamChannelName] = useState<string | null>(null)
   const [streamMarkers, setStreamMarkers] = useState<StreamMarker[]>([])
+  const [streamSessions, setStreamSessions] = useState<StreamSession[]>([])
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [twitchLoggedIn, setTwitchLoggedIn] = useState(false)
+  const [twitchExtractState, setTwitchExtractState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
+  const [twitchExtractError, setTwitchExtractError] = useState('')
   const urlRef = useRef('')
   const t = translations[lang]
 
@@ -1861,12 +2337,17 @@ export default function App() {
       document.documentElement.setAttribute('data-theme', s.theme==='apathy'?'apathy':'')
       setInitFmt({ type:s.formatType, vq:s.videoQuality as VideoQuality, aq:s.audioQuality as AudioQuality })
       setAutoCheckUpdates(s.autoCheckUpdates !== false)
+      setSidebarCollapsed(!!s.sidebarCollapsed)
       const elSettings = await window.api.getSettings()
       setSettings({ ...elSettings, downloadPath:s.downloadPath||elSettings.downloadPath, concurrentDownloads:s.concurrentDownloads||elSettings.concurrentDownloads })
       const hist = await loadHistory()
       setDownloads(hist.map(h => ({ ...h, progress:100, speed:undefined, eta:undefined, error:undefined })))
       const { exists } = await window.api.checkYtDlp()
       if (exists) { setReady(true) } else { setShowSetup(true) }
+      console.log('[App] init: checkYtDlp exists=', exists)
+      window.api?.checkTwitchSession().then(r => { console.log('[App] init: twitchSession loggedIn=', r.loggedIn); setTwitchLoggedIn(r.loggedIn) }).catch(e => console.warn('[App] init: checkTwitchSession error', e))
+      const sessions = await loadStreamSessions()
+      setStreamSessions(sessions)
     })()
   }, [])
 
@@ -1912,6 +2393,21 @@ export default function App() {
     }, 4000)   // 4s after component mount — renderer is definitely ready
     return () => clearTimeout(timer)
   }, [])  // run once on mount
+
+  const handleTwitchExtract = async () => {
+    console.log('[Twitch] extractTwitchCookies start')
+    setTwitchExtractState('busy'); setTwitchExtractError('')
+    try {
+      const r = await window.api?.extractTwitchCookies()
+      console.log('[Twitch] extractTwitchCookies result:', r)
+      if (r?.success) { setTwitchExtractState('ok'); setTwitchLoggedIn(true) }
+      else { setTwitchExtractState('fail'); setTwitchExtractError(r?.error || '') }
+    } catch (err) {
+      console.error('[Twitch] extractTwitchCookies error:', err)
+      setTwitchExtractState('fail'); setTwitchExtractError(String(err))
+    }
+    setTimeout(() => setTwitchExtractState('idle'), 5000)
+  }
 
   const handleAutoCheckChange = (v: boolean) => {
     setAutoCheckUpdates(v)
@@ -2051,7 +2547,10 @@ export default function App() {
       {updateInfo?.hasUpdate && <UpdateBanner info={updateInfo} t={t} onDismiss={() => setUpdateInfo(null)}/>}
       <TitleBar/>
       <div className="app-body">
-        <Sidebar view={view} onChange={setView} activeCount={activeCount} lang={lang} onLangToggle={toggleLang}/>
+        <Sidebar view={view} onChange={setView} activeCount={activeCount} lang={lang} onLangToggle={toggleLang}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => { const next = !sidebarCollapsed; setSidebarCollapsed(next); saveState({ sidebarCollapsed: next }) }}
+        />
         <main className={`main${view === 'stream' ? ' main-stream' : ''}`}>
           {view==='download' && (
             <div className="dl-view">
@@ -2130,21 +2629,32 @@ export default function App() {
             </div>
           )}
           {view==='history' && <HistoryView downloads={downloads} t={t} onClear={async()=>{ await clearHistory(); setDownloads(p=>p.filter(d=>d.status==='downloading'||d.status==='pending')) }}/>}
-          {view==='settings' && <SettingsView settings={settings} onSave={handleSaveSettings} onPickFolder={handlePickFolder} t={t} theme={theme} onThemeChange={handleThemeChange} highlightCookies={highlightCookies} autoCheckUpdates={autoCheckUpdates} onAutoCheckChange={handleAutoCheckChange} onManualCheck={handleManualCheck}/>}
-          {view==='stream' && <StreamView
-            t={t}
-            downloadPath={settings.downloadPath}
-            persistedInput={streamInput}
-            persistedChannelName={streamChannelName}
-            persistedMarkers={streamMarkers}
-            onInputChange={setStreamInput}
-            onChannelChange={setStreamChannelName}
-            onMarkersChange={setStreamMarkers}
-            onStartDownload={(item, formatArgs) => {
-              setDownloads(p => [item, ...p])
-              window.api.startDownload({ id: item.id, url: item.url, formatArgs, downloadPath: settings.downloadPath })
-            }}
-          />}
+          {view==='settings' && (console.log('[App] rendering SettingsView', { twitchLoggedIn, twitchExtractState, twitchExtractError }), true) && <SettingsView settings={settings} onSave={handleSaveSettings} onPickFolder={handlePickFolder} t={t} theme={theme} onThemeChange={handleThemeChange} highlightCookies={highlightCookies} autoCheckUpdates={autoCheckUpdates} onAutoCheckChange={handleAutoCheckChange} onManualCheck={handleManualCheck} twitchLoggedIn={twitchLoggedIn} twitchExtractState={twitchExtractState} twitchExtractError={twitchExtractError} onTwitchExtract={handleTwitchExtract}/>}
+          <div style={{display: view==='stream' ? 'contents' : 'none'}}>
+            <StreamView
+              hidden={view !== 'stream'}
+              t={t}
+              downloadPath={settings.downloadPath}
+              persistedInput={streamInput}
+              persistedChannelName={streamChannelName}
+              persistedMarkers={streamMarkers}
+              streamSessions={streamSessions}
+              onInputChange={setStreamInput}
+              onChannelChange={setStreamChannelName}
+              onMarkersChange={setStreamMarkers}
+              onSessionsChange={v => {
+                setStreamSessions(prev => {
+                  const next = typeof v === 'function' ? v(prev) : v
+                  saveStreamSessions(next)
+                  return next
+                })
+              }}
+              onStartDownload={(item, formatArgs) => {
+                setDownloads(p => [item, ...p])
+                window.api.startDownload({ id: item.id, url: item.url, formatArgs, downloadPath: settings.downloadPath })
+              }}
+            />
+          </div>
         </main>
       </div>
     </div>

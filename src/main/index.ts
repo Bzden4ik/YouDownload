@@ -428,7 +428,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1300, height: 840, minWidth: 960, minHeight: 620,
     frame: false, backgroundColor: '#05050A', show: false, autoHideMenuBar: true, icon,
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true }
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true, backgroundThrottling: false }
   })
   mainWindow.on('ready-to-show', () => { mainWindow?.show(); mainWindow?.focus() })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
@@ -623,6 +623,35 @@ ipcMain.handle('extract-vk-cookies', async () => {
   }
 })
 
+// Check if Twitch session has cookies (i.e. user is logged in to Twitch chat)
+ipcMain.handle('check-twitch-session', async () => {
+  const ses = session.fromPartition('persist:twitch-chat')
+  const cookies = await ses.cookies.get({ domain: 'twitch.tv', name: 'auth-token' })
+  return { loggedIn: cookies.length > 0 }
+})
+
+// Opens Twitch login in a window using the SAME persist:twitch-chat session as the chat webview.
+// After closing, the session already has the auth cookies — chat will open logged-in automatically.
+ipcMain.handle('extract-twitch-cookies', async () => {
+  const ses = session.fromPartition('persist:twitch-chat')
+
+  const loginWin = new BrowserWindow({
+    width: 1080, height: 720,
+    title: 'YouDownload — Sign in to Twitch, then close this window',
+    autoHideMenuBar: true,
+    parent: mainWindow ?? undefined,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
+  })
+
+  loginWin.loadURL('https://www.twitch.tv/login')
+  loginWin.show()
+  await new Promise<void>(resolve => loginWin.on('closed', resolve))
+
+  const cookies = await ses.cookies.get({ domain: 'twitch.tv', name: 'auth-token' })
+  if (cookies.length === 0) return { success: false, error: 'No Twitch cookies found — make sure you signed in before closing.' }
+  return { success: true }
+})
+
 /** Detect ffmpeg-missing errors from yt-dlp and return a human-readable message */
 function enrichFfmpegError(raw: string): string {
   const lower = raw.toLowerCase()
@@ -793,10 +822,12 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
     }
   }
 
-  if (isSectionDownload && payload.sectionDuration && payload.sectionDuration > 0) {
+  if (isSectionDownload) {
+    const dur = payload.sectionDuration && payload.sectionDuration > 0 ? payload.sectionDuration : 300
     const startTime = Date.now()
     // Добавляем 30% запас времени — Twitch VOD скачивается примерно в реальном времени
-    const expectedMs = payload.sectionDuration * 1000 * 1.3
+    const expectedMs = dur * 1000 * 1.3
+    console.log(`[section-timer] запущен, dur=${dur}s, expectedMs=${Math.round(expectedMs/1000)}s`)
     sectionTimer = setInterval(() => {
       const elapsed = Date.now() - startTime
       const pct = Math.min((elapsed / expectedMs) * 95, 95)
@@ -854,6 +885,7 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
       })
 
       emitter.on('close', () => {
+        console.log(`[yt-dlp close] id=${payload.id}, sectionTimer active=${!!sectionTimer}, cancelled=${activeDownloads.get(payload.id)?.cancelled ?? false}`)
         if (activeDownloads.get(payload.id)?.cancelled) { resolve('error'); return }
         resolve('complete')
       })
@@ -944,6 +976,124 @@ ipcMain.handle('cancel-download', (_e, id: string) => {
 
 ipcMain.handle('open-folder', (_e, path: string) => shell.openPath(path))
 ipcMain.handle('open-external', (_e, url: string) => shell.openExternal(url))
+
+// Fetch followed live streams via Twitch GQL (no Client-ID secret needed — uses public kimne78 key)
+ipcMain.handle('fetch-twitch-followed-live', async () => {
+  const ses = session.fromPartition('persist:twitch-chat')
+
+  // Need auth-token for the API call
+  const authCookies = await ses.cookies.get({ domain: 'twitch.tv', name: 'auth-token' })
+  const authToken = authCookies[0]?.value
+  if (!authToken) return { success: false, error: 'not_logged_in' }
+
+  // Step 1: get current user login via GQL
+  const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko'
+
+  const gqlFetch = (body: object): Promise<any> => new Promise((resolve, reject) => {
+    const req = net.request({ url: 'https://gql.twitch.tv/gql', method: 'POST' })
+    req.setHeader('Content-Type', 'application/json')
+    req.setHeader('Client-ID', CLIENT_ID)
+    req.setHeader('Authorization', `OAuth ${authToken}`)
+    let data = ''
+    req.on('response', res => {
+      res.on('data', c => { data += c.toString() })
+      res.on('end', () => { try { resolve(JSON.parse(data)) } catch (e) { reject(e) } })
+    })
+    req.on('error', reject)
+    req.write(JSON.stringify(body))
+    req.end()
+  })
+
+  try {
+    // Get viewer's own user ID
+    const meResp = await gqlFetch([{ query: 'query { currentUser { id login displayName profileImageURL(width: 70) } }' }])
+    const me = meResp?.[0]?.data?.currentUser
+    if (!me) return { success: false, error: 'not_logged_in' }
+
+    // Fetch followed live streams — GQL FollowedLiveUsers
+    const liveResp = await gqlFetch([{
+      operationName: 'FollowedSideNav_CurrentUser',
+      variables: { first: 100 },
+      query: `query FollowedSideNav_CurrentUser($first: Int) {
+        currentUser {
+          followedLiveUsers(first: $first) {
+            nodes {
+              id login displayName
+              profileImageURL(width: 70)
+              stream {
+                id title viewersCount game { name }
+              }
+            }
+          }
+        }
+      }`
+    }])
+
+    const nodes = liveResp?.[0]?.data?.currentUser?.followedLiveUsers?.nodes ?? []
+    const streams = nodes.map((u: any) => ({
+      login: u.login,
+      displayName: u.displayName,
+      avatar: u.profileImageURL,
+      title: u.stream?.title ?? '',
+      viewers: u.stream?.viewersCount ?? 0,
+      game: u.stream?.game?.name ?? '',
+    }))
+
+    return { success: true, streams, me: { login: me.login, displayName: me.displayName, avatar: me.profileImageURL } }
+  } catch (e) {
+    return { success: false, error: String(e) }
+  }
+})
+
+// Chat window controls
+let chatWindow: BrowserWindow | null = null
+
+ipcMain.on('chat-minimize', () => chatWindow?.minimize())
+ipcMain.on('chat-maximize', () => {
+  if (!chatWindow) return
+  if (chatWindow.isMaximized()) {
+    chatWindow.unmaximize()
+    chatWindow.webContents.send('chat-maximized', false)
+  } else {
+    chatWindow.maximize()
+    chatWindow.webContents.send('chat-maximized', true)
+  }
+})
+ipcMain.on('chat-close', () => { chatWindow?.close(); chatWindow = null })
+
+// Open Twitch chat in a separate frameless window with custom titlebar
+ipcMain.handle('open-twitch-chat', (_e, channel: string) => {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.focus()
+    return
+  }
+  chatWindow = new BrowserWindow({
+    width: 360,
+    height: 720,
+    minWidth: 280,
+    minHeight: 400,
+    title: `Chat — ${channel}`,
+    backgroundColor: '#0e0e10',
+    frame: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      backgroundThrottling: false,
+      webviewTag: true,
+      session: session.fromPartition('persist:twitch-chat'),
+    },
+  })
+
+  const chatHtmlPath = app.isPackaged
+    ? join(process.resourcesPath, 'app.asar', 'src', 'chat.html')
+    : join(app.getAppPath(), 'src', 'chat.html')
+  chatWindow.loadFile(chatHtmlPath, { query: { channel } })
+
+  chatWindow.on('maximize', () => chatWindow?.webContents.send('chat-maximized', true))
+  chatWindow.on('unmaximize', () => chatWindow?.webContents.send('chat-maximized', false))
+  chatWindow.on('closed', () => { chatWindow = null })
+})
 
 // ── Auto-updater ─────────────────────────────────────────────────────────────
 
@@ -1107,11 +1257,43 @@ async function autoRefreshVkCookies(): Promise<void> {
   } catch { /* non-critical */ }
 }
 
+// ── GPU / Video hardware acceleration ────────────────────────────────────────
+// Без этих флагов Electron деградирует до программного декодинга при HLS 1080p60,
+// что вызывает dropped frames и лаги в webview-плеере.
+
+// Принудительно включаем GPU-растеризацию и zero-copy для видеодекодинга
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('enable-zero-copy')
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('disable-software-rasterizer')
+
+// Windows: D3D11 — аппаратный декодер видео (DXVA2/D3D11VA)
+app.commandLine.appendSwitch('use-angle', 'd3d11')
+app.commandLine.appendSwitch('enable-features', [
+  'D3D11VideoDecoder',          // аппаратный декодинг H.264/AVC через D3D11
+  'VaapiVideoDecoder',          // fallback для Intel/AMD через VAAPI
+  'PlatformHEVCDecoderSupport', // HEVC/H.265 если стрим в этом формате
+  'HardwareMediaKeyHandling',
+  'CanvasOopRasterization',
+  'EnableDrDc',                 // Double-buffered rendering — меньше разрывов
+].join(','))
+
+// Убираем GPU-vsync ограничение — плеер не должен ждать swap'а главного окна
+app.commandLine.appendSwitch('disable-gpu-vsync')
+
+// Отдельный GPU memory buffer для video overlay — изолирует видео от UI rendering
+app.commandLine.appendSwitch('enable-hardware-overlays', 'single-fullscreen,single-on-top,underlay')
+
+// Каждое BrowserWindow получает свой renderer process — чат-окно не перехватывает GPU у плеера
+app.commandLine.appendSwitch('renderer-process-limit', '100')
+// Отключаем сжатие рендерер-процессов (default Electron-поведение может мешать видео)
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+
 // App lifecycle
 app.whenReady().then(async () => {
   // Allow media (video/audio) permissions for the preview webview session
   session.fromPartition('persist:preview').setPermissionRequestHandler((_wc, permission, callback) => {
-    const allowed = ['media', 'autoplay', 'fullscreen']
+    const allowed = ['media', 'autoplay', 'fullscreen', 'mediaKeySystem']
     callback(allowed.includes(permission))
   })
 

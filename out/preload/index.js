@@ -33,6 +33,8 @@ const api = {
   extractBrowserCookies: () => electron.ipcRenderer.invoke("extract-browser-cookies"),
   checkVkSession: () => electron.ipcRenderer.invoke("check-vk-session"),
   extractVkCookies: () => electron.ipcRenderer.invoke("extract-vk-cookies"),
+  checkTwitchSession: () => electron.ipcRenderer.invoke("check-twitch-session"),
+  extractTwitchCookies: () => electron.ipcRenderer.invoke("extract-twitch-cookies"),
   fetchVideoInfo: (url) => electron.ipcRenderer.invoke("fetch-video-info", url),
   fetchPlaylistInfo: (url) => electron.ipcRenderer.invoke("fetch-playlist-info", url),
   fetchTwitchChannel: (channelName, type) => electron.ipcRenderer.invoke("fetch-twitch-channel", channelName, type),
@@ -43,6 +45,8 @@ const api = {
   cancelDownload: (id) => electron.ipcRenderer.invoke("cancel-download", id),
   openFolder: (path) => electron.ipcRenderer.invoke("open-folder", path),
   openExternal: (url) => electron.ipcRenderer.invoke("open-external", url),
+  openTwitchChat: (channel) => electron.ipcRenderer.invoke("open-twitch-chat", channel),
+  fetchTwitchFollowedLive: () => electron.ipcRenderer.invoke("fetch-twitch-followed-live"),
   getPreviewPort: () => electron.ipcRenderer.invoke("get-preview-port"),
   // Updates
   checkForUpdates: () => electron.ipcRenderer.invoke("check-for-updates"),

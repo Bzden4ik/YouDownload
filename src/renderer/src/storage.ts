@@ -12,6 +12,7 @@ export interface PersistedState {
   downloadPath: string
   concurrentDownloads: number
   autoCheckUpdates: boolean
+  sidebarCollapsed?: boolean
 }
 
 export interface PersistedDownload {
@@ -22,6 +23,51 @@ export interface PersistedDownload {
   formatLabel: string
   status: 'complete' | 'error' | 'cancelled'
   createdAt: number
+}
+
+export interface StreamSessionMarker {
+  id: string
+  name: string
+  description: string
+  streamPos: number
+  createdAt: number
+}
+
+export interface StreamSession {
+  id: string
+  channelName: string
+  streamTitle?: string
+  startedAt: number
+  lastActiveAt: number
+  markers: StreamSessionMarker[]
+}
+
+export async function loadStreamSessions(): Promise<StreamSession[]> {
+  try {
+    const s = await window.api.getAppState()
+    return (s as any).streamSessions ?? []
+  } catch { return [] }
+}
+
+export async function saveStreamSessions(sessions: StreamSession[]): Promise<void> {
+  try {
+    await window.api.saveAppState({ streamSessions: sessions } as any)
+  } catch {}
+}
+
+/** Загрузить список избранных стримеров (логины, lowercase) */
+export async function loadFavStreamers(): Promise<string[]> {
+  try {
+    const s = await window.api.getAppState()
+    return (s as any).favStreamers ?? []
+  } catch { return [] }
+}
+
+/** Сохранить список избранных стримеров */
+export async function saveFavStreamers(logins: string[]): Promise<void> {
+  try {
+    await window.api.saveAppState({ favStreamers: logins } as any)
+  } catch {}
 }
 
 export const DEFAULTS: PersistedState = {
