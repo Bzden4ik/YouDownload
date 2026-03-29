@@ -30,6 +30,30 @@ const store = new Store({
     history: []
   }
 });
+function findFfmpeg() {
+  const binary = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  const binDir = path.join(getYtDlpPath(), "..");
+  const bundled = path.join(binDir, binary);
+  if (fs.existsSync(bundled)) return bundled;
+  const candidates = [
+    "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+    "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
+    path.join(process.env["LOCALAPPDATA"] ?? "", "Programs", "ffmpeg", "bin", "ffmpeg.exe"),
+    path.join(process.env["ProgramData"] ?? "", "chocolatey", "bin", "ffmpeg.exe")
+  ];
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+  try {
+    const cmd = process.platform === "win32" ? "where ffmpeg" : "which ffmpeg";
+    const result = child_process.execSync(cmd, { encoding: "utf8", timeout: 3e3 }).trim();
+    const first = result.split("\n")[0].trim();
+    if (first && fs.existsSync(first)) return first;
+  } catch {
+  }
+  return null;
+}
 function getYtDlpPath() {
   const binary = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
   if (electron.app.isPackaged) return path.join(process.resourcesPath, "bin", binary);
@@ -115,6 +139,27 @@ function startPreviewServer() {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost`);
     const videoId = url.searchParams.get("id") ?? "";
+    const channelName = url.searchParams.get("channel") ?? "";
+    const playerConfig = channelName ? `channel: "${channelName}"` : `video: "${videoId}"`;
+    const streamTimeScript = channelName ? `
+  (function() {
+    function fetchStreamStart() {
+      try {
+        fetch('https://gql.twitch.tv/gql', {
+          method: 'POST',
+          headers: { 'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko', 'Content-Type': 'application/json' },
+          body: JSON.stringify([{"query":"query{user(login:\\"${channelName}\\"){stream{createdAt}}}"}])
+        }).then(function(r){ return r.json(); }).then(function(data) {
+          var createdAt = data && data[0] && data[0].data && data[0].data.user
+            && data[0].data.user.stream && data[0].data.user.stream.createdAt;
+          if (createdAt) { window.__streamStarted = new Date(createdAt).getTime(); }
+        }).catch(function(){});
+      } catch(e) {}
+    }
+    fetchStreamStart();
+    setTimeout(fetchStreamStart, 6000); // retry once
+  })();
+` : "";
     const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
@@ -128,8 +173,10 @@ function startPreviewServer() {
 <div id="twitch-player"></div>
 <script src="https://player.twitch.tv/js/embed/v1.js"><\/script>
 <script>
+  window.__streamStarted = null;
+
   var player = new Twitch.Player("twitch-player", {
-    video: "${videoId}",
+    ${playerConfig},
     parent: ["localhost"],
     autoplay: true,
     muted: false,
@@ -137,6 +184,34 @@ function startPreviewServer() {
     height: "100%"
   });
   window.__twitchPlayer = player;
+
+  // Fallback: if GQL hasn't resolved yet, use getCurrentTime() on PLAYING
+  // (for some streams getCurrentTime returns the real DVR position from stream start)
+  player.addEventListener(Twitch.Player.PLAYING, function() {
+    if (!window.__streamStarted) {
+      try {
+        var ct = player.getCurrentTime();
+        if (typeof ct === 'number' && ct > 1) {
+          window.__streamStarted = Date.now() - ct * 1000;
+        }
+      } catch(e) {}
+    }
+  });
+
+  ${streamTimeScript}
+
+  // Returns seconds since stream actually started (wall-clock based).
+  // This is the REAL stream duration, not viewer session time.
+  window.__getStreamPos = function() {
+    if (window.__streamStarted) {
+      return Math.floor((Date.now() - window.__streamStarted) / 1000);
+    }
+    try {
+      var ct = player.getCurrentTime();
+      return (typeof ct === 'number' && ct >= 0) ? Math.floor(ct) : -1;
+    } catch(e) { return -1; }
+  };
+
   player.addEventListener(Twitch.Player.READY, function() {
     setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 300);
     setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 1000);
@@ -205,6 +280,11 @@ function getBaseArgs(cookiesFromBrowser, cookiesFile, url) {
     "--remote-components",
     "ejs:github"
   ];
+  const ffmpegPath = findFfmpeg();
+  if (ffmpegPath) {
+    const ffmpegDir = path.join(ffmpegPath, "..");
+    args.push("--ffmpeg-location", ffmpegDir);
+  }
   if (!isTwitch && !isVK) {
     if (isMusicYT) {
       const playerClient = activeCookies ? "android_music" : "ios";
@@ -286,6 +366,44 @@ electron.ipcMain.handle("append-history", (_e, item) => {
 electron.ipcMain.handle("clear-history", () => {
   store.set("history", []);
   return true;
+});
+electron.ipcMain.handle("check-ffmpeg", () => {
+  const p = findFfmpeg();
+  return { exists: !!p, path: p ?? "" };
+});
+electron.ipcMain.handle("download-ffmpeg", async (event) => {
+  const binDir = path.join(getYtDlpPath(), "..");
+  const ffmpegExe = path.join(binDir, "ffmpeg.exe");
+  const ffprobeExe = path.join(binDir, "ffprobe.exe");
+  try {
+    fs.mkdirSync(binDir, { recursive: true });
+    event.sender.send("ffmpeg-download-progress", { step: "Trying winget..." });
+    try {
+      child_process.execSync("winget install --id Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements", { timeout: 12e4, stdio: "ignore" });
+      const newPath = findFfmpeg();
+      if (newPath) return { success: true, path: newPath };
+    } catch {
+    }
+    event.sender.send("ffmpeg-download-progress", { step: "Downloading ffmpeg..." });
+    const psScript = `
+$url = 'https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip'
+$tmp = "$env:TEMP\\ffmpeg_dl.zip"
+$out = "$env:TEMP\\ffmpeg_unpack"
+Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+Expand-Archive -Path $tmp -DestinationPath $out -Force
+$exe = Get-ChildItem -Path $out -Filter 'ffmpeg.exe' -Recurse | Select-Object -First 1
+Copy-Item -Path $exe.FullName -Destination '${ffmpegExe.replace(/\\/g, "\\\\")}' -Force
+$probe = Get-ChildItem -Path $out -Filter 'ffprobe.exe' -Recurse | Select-Object -First 1
+if ($probe) { Copy-Item -Path $probe.FullName -Destination '${ffprobeExe.replace(/\\/g, "\\\\")}' -Force }
+Remove-Item $tmp -Force
+Remove-Item $out -Recurse -Force
+`;
+    child_process.execSync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript.replace(/\n/g, " ")}"`, { timeout: 3e5, stdio: "ignore" });
+    if (fs.existsSync(ffmpegExe)) return { success: true, path: ffmpegExe };
+    return { success: false, error: "ffmpeg.exe not found after download" };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
 });
 electron.ipcMain.handle("check-ytdlp", () => {
   const b = getYtDlpPath();
@@ -389,6 +507,22 @@ electron.ipcMain.handle("extract-vk-cookies", async () => {
     return { success: false, error: String(e) };
   }
 });
+function enrichFfmpegError(raw) {
+  const lower = raw.toLowerCase();
+  if (lower.includes("ffmpeg is not installed") || lower.includes("ffmpeg not found")) {
+    return "ffmpeg not installed. Install it: winget install ffmpeg  (then restart the app). Or place ffmpeg.exe in the same folder as yt-dlp.exe.";
+  }
+  return raw;
+}
+function cleanYtDlpError(raw) {
+  const lines = raw.split("\n");
+  const errors = lines.filter((l) => l.trimStart().startsWith("ERROR:"));
+  if (errors.length > 0) {
+    return errors.map((l) => l.replace(/^.*?ERROR:\s*/, "")).join(" | ");
+  }
+  const cleaned = lines.filter((l) => !l.trimStart().startsWith("WARNING:")).join("\n").trim();
+  return cleaned || raw;
+}
 electron.ipcMain.handle("fetch-video-info", async (_e, rawUrl) => {
   if (!ytDlpWrap) return { success: false, error: "yt-dlp not initialized" };
   const url = normalizeVkUrl(rawUrl);
@@ -459,6 +593,12 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
   }
   const isSectionDownload = formatArgs.includes("--download-sections");
   let sectionTimer = null;
+  if (isSectionDownload && !findFfmpeg()) {
+    return {
+      success: false,
+      error: "ffmpeg не установлен. Для скачивания отрезков требуется ffmpeg.\nУстановить: winget install ffmpeg  (затем перезапустить приложение)\nИли поместить ffmpeg.exe в ту же папку, что и yt-dlp.exe"
+    };
+  }
   if (isSectionDownload && payload.sectionDuration && payload.sectionDuration > 0) {
     const startTime = Date.now();
     const expectedMs = payload.sectionDuration * 1e3 * 1.3;
@@ -496,7 +636,10 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
         sectionTimer = null;
       }
       const dl = activeDownloads.get(payload.id);
-      if (!dl?.cancelled) event.sender.send("download-error", { id: payload.id, error: err.message });
+      if (!dl?.cancelled) {
+        const msg = enrichFfmpegError(cleanYtDlpError(err.message));
+        event.sender.send("download-error", { id: payload.id, error: msg });
+      }
       activeDownloads.delete(payload.id);
     });
     emitter.on("close", () => {

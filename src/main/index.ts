@@ -69,6 +69,32 @@ const store = new Store<StoreSchema>({
   }
 })
 
+/** Find ffmpeg binary in common locations + PATH */
+function findFfmpeg(): string | null {
+  const binary = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+  // 1) Next to yt-dlp (bundled in the same bin/ dir)
+  const binDir = join(getYtDlpPath(), '..')
+  const bundled = join(binDir, binary)
+  if (existsSync(bundled)) return bundled
+  // 2) Common install locations on Windows
+  const candidates = [
+    'C:\\ffmpeg\\bin\\ffmpeg.exe',
+    'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+    'C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe',
+    join(process.env['LOCALAPPDATA'] ?? '', 'Programs', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+    join(process.env['ProgramData'] ?? '', 'chocolatey', 'bin', 'ffmpeg.exe'),
+  ]
+  for (const p of candidates) { if (p && existsSync(p)) return p }
+  // 3) System PATH
+  try {
+    const cmd = process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg'
+    const result = execSync(cmd, { encoding: 'utf8', timeout: 3000 }).trim()
+    const first = result.split('\n')[0].trim()
+    if (first && existsSync(first)) return first
+  } catch { /* not in PATH */ }
+  return null
+}
+
 function getYtDlpPath(): string {
   const binary = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
   if (app.isPackaged) return join(process.resourcesPath, 'bin', binary)
@@ -147,9 +173,34 @@ let previewServerPort = 0
 
 function startPreviewServer(): void {
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
-    // Parse ?id=VIDEO_ID from URL
+    // Parse ?id=VIDEO_ID or ?channel=CHANNEL_NAME from URL
     const url = new URL(req.url ?? '/', `http://localhost`)
     const videoId = url.searchParams.get('id') ?? ''
+    const channelName = url.searchParams.get('channel') ?? ''
+    const playerConfig = channelName ? `channel: "${channelName}"` : `video: "${videoId}"`
+
+    // For live channels: fetch real stream start time via Twitch GQL so the
+    // timer always shows total stream duration (e.g. 7:48:37), not viewer session time.
+    const streamTimeScript = channelName ? `
+  (function() {
+    function fetchStreamStart() {
+      try {
+        fetch('https://gql.twitch.tv/gql', {
+          method: 'POST',
+          headers: { 'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko', 'Content-Type': 'application/json' },
+          body: JSON.stringify([{"query":"query{user(login:\\"${channelName}\\"){stream{createdAt}}}"}])
+        }).then(function(r){ return r.json(); }).then(function(data) {
+          var createdAt = data && data[0] && data[0].data && data[0].data.user
+            && data[0].data.user.stream && data[0].data.user.stream.createdAt;
+          if (createdAt) { window.__streamStarted = new Date(createdAt).getTime(); }
+        }).catch(function(){});
+      } catch(e) {}
+    }
+    fetchStreamStart();
+    setTimeout(fetchStreamStart, 6000); // retry once
+  })();
+` : ''
+
     const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
@@ -163,8 +214,10 @@ function startPreviewServer(): void {
 <div id="twitch-player"></div>
 <script src="https://player.twitch.tv/js/embed/v1.js"></script>
 <script>
+  window.__streamStarted = null;
+
   var player = new Twitch.Player("twitch-player", {
-    video: "${videoId}",
+    ${playerConfig},
     parent: ["localhost"],
     autoplay: true,
     muted: false,
@@ -172,6 +225,34 @@ function startPreviewServer(): void {
     height: "100%"
   });
   window.__twitchPlayer = player;
+
+  // Fallback: if GQL hasn't resolved yet, use getCurrentTime() on PLAYING
+  // (for some streams getCurrentTime returns the real DVR position from stream start)
+  player.addEventListener(Twitch.Player.PLAYING, function() {
+    if (!window.__streamStarted) {
+      try {
+        var ct = player.getCurrentTime();
+        if (typeof ct === 'number' && ct > 1) {
+          window.__streamStarted = Date.now() - ct * 1000;
+        }
+      } catch(e) {}
+    }
+  });
+
+  ${streamTimeScript}
+
+  // Returns seconds since stream actually started (wall-clock based).
+  // This is the REAL stream duration, not viewer session time.
+  window.__getStreamPos = function() {
+    if (window.__streamStarted) {
+      return Math.floor((Date.now() - window.__streamStarted) / 1000);
+    }
+    try {
+      var ct = player.getCurrentTime();
+      return (typeof ct === 'number' && ct >= 0) ? Math.floor(ct) : -1;
+    } catch(e) { return -1; }
+  };
+
   player.addEventListener(Twitch.Player.READY, function() {
     setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 300);
     setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 1000);
@@ -251,6 +332,13 @@ function getBaseArgs(cookiesFromBrowser: string, cookiesFile?: string, url?: str
     '--remote-components', 'ejs:github',
   ]
 
+  // Automatically pass --ffmpeg-location if we can find ffmpeg
+  const ffmpegPath = findFfmpeg()
+  if (ffmpegPath) {
+    const ffmpegDir = join(ffmpegPath, '..')
+    args.push('--ffmpeg-location', ffmpegDir)
+  }
+
   if (!isTwitch && !isVK) {
     // With cookies: do not force a client — yt-dlp picks the best one automatically.
     // Without cookies: ios is reliable (no n-challenge, no PO Token needed).
@@ -325,6 +413,50 @@ ipcMain.handle('append-history', (_e, item: HistoryItem) => {
 ipcMain.handle('clear-history', () => { store.set('history', []); return true })
 
 // yt-dlp
+// ffmpeg check & download
+ipcMain.handle('check-ffmpeg', () => {
+  const p = findFfmpeg()
+  return { exists: !!p, path: p ?? '' }
+})
+
+ipcMain.handle('download-ffmpeg', async (event) => {
+  const binDir = join(getYtDlpPath(), '..')
+  const ffmpegExe = join(binDir, 'ffmpeg.exe')
+  const ffprobeExe = join(binDir, 'ffprobe.exe')
+  try {
+    mkdirSync(binDir, { recursive: true })
+    // Use yt-dlp itself to download ffmpeg via winget or direct GitHub release
+    // Strategy: try winget first (silent), then fall back to direct download via PowerShell
+    event.sender.send('ffmpeg-download-progress', { step: 'Trying winget...' })
+    try {
+      execSync('winget install --id Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements', { timeout: 120000, stdio: 'ignore' })
+      const newPath = findFfmpeg()
+      if (newPath) return { success: true, path: newPath }
+    } catch { /* winget failed or not available */ }
+
+    // Fallback: download ffmpeg-release-essentials from GitHub via PowerShell
+    event.sender.send('ffmpeg-download-progress', { step: 'Downloading ffmpeg...' })
+    const psScript = `
+$url = 'https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip'
+$tmp = "$env:TEMP\\ffmpeg_dl.zip"
+$out = "$env:TEMP\\ffmpeg_unpack"
+Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+Expand-Archive -Path $tmp -DestinationPath $out -Force
+$exe = Get-ChildItem -Path $out -Filter 'ffmpeg.exe' -Recurse | Select-Object -First 1
+Copy-Item -Path $exe.FullName -Destination '${ffmpegExe.replace(/\\/g, '\\\\')}' -Force
+$probe = Get-ChildItem -Path $out -Filter 'ffprobe.exe' -Recurse | Select-Object -First 1
+if ($probe) { Copy-Item -Path $probe.FullName -Destination '${ffprobeExe.replace(/\\/g, '\\\\')}' -Force }
+Remove-Item $tmp -Force
+Remove-Item $out -Recurse -Force
+`
+    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript.replace(/\n/g, ' ')}"`, { timeout: 300000, stdio: 'ignore' })
+    if (existsSync(ffmpegExe)) return { success: true, path: ffmpegExe }
+    return { success: false, error: 'ffmpeg.exe not found after download' }
+  } catch (e) {
+    return { success: false, error: String(e) }
+  }
+})
+
 ipcMain.handle('check-ytdlp', () => {
   const b = getYtDlpPath(); const s = findSystemYtDlp()
   return { exists: existsSync(b) || !!s, path: existsSync(b) ? b : (s ?? '') }
@@ -435,6 +567,15 @@ ipcMain.handle('extract-vk-cookies', async () => {
   }
 })
 
+/** Detect ffmpeg-missing errors from yt-dlp and return a human-readable message */
+function enrichFfmpegError(raw: string): string {
+  const lower = raw.toLowerCase()
+  if (lower.includes('ffmpeg is not installed') || lower.includes('ffmpeg not found')) {
+    return 'ffmpeg not installed. Install it: winget install ffmpeg  (then restart the app). Or place ffmpeg.exe in the same folder as yt-dlp.exe.'
+  }
+  return raw
+}
+
 /** Strip WARNING lines from yt-dlp output, keep only the key ERROR */
 function cleanYtDlpError(raw: string): string {
   const lines = raw.split('\n')
@@ -524,6 +665,16 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
   const isSectionDownload = formatArgs.includes('--download-sections')
   let sectionTimer: ReturnType<typeof setInterval> | null = null
 
+  // Если нужен --download-sections, проверяем ffmpeg ДО запуска
+  if (isSectionDownload && !findFfmpeg()) {
+    return {
+      success: false,
+      error: 'ffmpeg не установлен. Для скачивания отрезков требуется ffmpeg.\n' +
+             'Установить: winget install ffmpeg  (затем перезапустить приложение)\n' +
+             'Или поместить ffmpeg.exe в ту же папку, что и yt-dlp.exe'
+    }
+  }
+
   if (isSectionDownload && payload.sectionDuration && payload.sectionDuration > 0) {
     const startTime = Date.now()
     // Добавляем 30% запас времени — Twitch VOD скачивается примерно в реальном времени
@@ -552,7 +703,10 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
     emitter.on('error', (err: Error) => {
       if (sectionTimer) { clearInterval(sectionTimer); sectionTimer = null }
       const dl = activeDownloads.get(payload.id)
-      if (!dl?.cancelled) event.sender.send('download-error', { id: payload.id, error: err.message })
+      if (!dl?.cancelled) {
+        const msg = enrichFfmpegError(cleanYtDlpError(err.message))
+        event.sender.send('download-error', { id: payload.id, error: msg })
+      }
       activeDownloads.delete(payload.id)
     })
     emitter.on('close', () => {

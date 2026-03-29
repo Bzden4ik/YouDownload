@@ -1,6 +1,6 @@
 {
   "name": "youdownload",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Futuristic YouTube & Media Downloader",
   "main": "./out/main/index.js",
   "scripts": {

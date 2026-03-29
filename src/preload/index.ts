@@ -20,6 +20,15 @@ const api = {
   appendHistory:  (item: unknown) => ipcRenderer.invoke('append-history', item),
   clearHistory:   () => ipcRenderer.invoke('clear-history'),
 
+  // ffmpeg
+  checkFfmpeg:    () => ipcRenderer.invoke('check-ffmpeg'),
+  downloadFfmpeg: () => ipcRenderer.invoke('download-ffmpeg'),
+  onFfmpegDownloadProgress: (cb: (d: unknown) => void) => {
+    const h = (_: Electron.IpcRendererEvent, d: unknown) => cb(d)
+    ipcRenderer.on('ffmpeg-download-progress', h)
+    return () => ipcRenderer.removeListener('ffmpeg-download-progress', h)
+  },
+
   // yt-dlp
   checkYtDlp:    () => ipcRenderer.invoke('check-ytdlp'),
   setupYtDlp:    () => ipcRenderer.invoke('setup-ytdlp'),

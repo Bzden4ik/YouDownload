@@ -16,6 +16,14 @@ const api = {
   getHistory: () => electron.ipcRenderer.invoke("get-history"),
   appendHistory: (item) => electron.ipcRenderer.invoke("append-history", item),
   clearHistory: () => electron.ipcRenderer.invoke("clear-history"),
+  // ffmpeg
+  checkFfmpeg: () => electron.ipcRenderer.invoke("check-ffmpeg"),
+  downloadFfmpeg: () => electron.ipcRenderer.invoke("download-ffmpeg"),
+  onFfmpegDownloadProgress: (cb) => {
+    const h = (_, d) => cb(d);
+    electron.ipcRenderer.on("ffmpeg-download-progress", h);
+    return () => electron.ipcRenderer.removeListener("ffmpeg-download-progress", h);
+  },
   // yt-dlp
   checkYtDlp: () => electron.ipcRenderer.invoke("check-ytdlp"),
   setupYtDlp: () => electron.ipcRenderer.invoke("setup-ytdlp"),

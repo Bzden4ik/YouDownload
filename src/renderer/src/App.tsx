@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { type Lang, type Translations, translations } from './i18n'
 import { loadState, saveState, loadHistory, appendHistory, clearHistory, type PersistedDownload } from './storage'
 
@@ -28,7 +28,7 @@ type VideoQuality = '2160' | '1440' | '1080' | '720' | '480' | '360' | '240' | '
 type TwitchQuality = 'source' | '1080p60' | '720p60' | '480p' | '360p' | '160p'
 type AudioQuality = 'mp3_best' | 'mp3_192' | 'mp3_128' | 'm4a'
 type Theme = 'fleet' | 'apathy'
-type View = 'download' | 'history' | 'settings'
+type View = 'download' | 'history' | 'settings' | 'stream'
 
 interface UpdateInfo {
   hasUpdate?: boolean
@@ -44,6 +44,7 @@ type Platform = 'youtube' | 'twitch' | 'vk'
 
 interface DownloadItem { id: string; url: string; title: string; thumbnail?: string; formatLabel: string; status: DownloadStatus; progress: number; speed?: string; eta?: string; error?: string; createdAt: number }
 interface AppSettings { downloadPath: string; defaultFormat: string; defaultQuality: string; concurrentDownloads: number; cookiesFromBrowser: string; cookiesFile: string }
+interface StreamMarker { id: string; name: string; description: string; streamPos: number; createdAt: number }
 
 // ═══════════════════════ HELPERS ═══════════════════════
 
@@ -57,6 +58,11 @@ function isCookieError(err: string): boolean {
     || l.includes('dpapi') || l.includes('chrome cookie') || l.includes('could not copy')
     || l.includes('requires authentication') || l.includes('confirm your age') || l.includes('not available')
     || l.includes('access restricted')
+}
+
+function isFfmpegError(err: string): boolean {
+  const l = err.toLowerCase()
+  return l.includes('ffmpeg') && (l.includes('not installed') || l.includes('not found') || l.includes('aborting') || l.includes('is not installed'))
 }
 
 function formatDur(s?: number): string {
@@ -138,8 +144,9 @@ function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality):
 
 function getTwitchFormatArgs(type: FormatType, quality: TwitchQuality): string[] {
   if (type === 'audio') return ['-f','audio_only/bestaudio','-x','--audio-format','mp3','--audio-quality','0']
+  // Twitch HLS is already a single pre-merged stream — no remux needed (avoids ffmpeg dependency)
   const map: Record<TwitchQuality,string> = { source:'best', '1080p60':'1080p60/1080p/best', '720p60':'720p60/720p/best', '480p':'480p/best', '360p':'360p/best', '160p':'160p/best' }
-  return ['-f', map[quality], '--remux-video', 'mp4']
+  return ['-f', map[quality]]
 }
 
 function getTwitchFormatLabel(type: FormatType, quality: TwitchQuality): string {
@@ -151,6 +158,18 @@ function getTwitchFormatLabel(type: FormatType, quality: TwitchQuality): string 
 function secsToTimestamp(s: number): string {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+}
+
+/** Parse HH:MM:SS, MM:SS or plain seconds string → seconds number. Returns null on bad input. */
+function parseTimestamp(raw: string): number | null {
+  const s = raw.trim()
+  if (!s) return null
+  const parts = s.split(':').map(p => parseFloat(p))
+  if (parts.some(p => isNaN(p))) return null
+  if (parts.length === 3) return Math.round(parts[0] * 3600 + parts[1] * 60 + parts[2])
+  if (parts.length === 2) return Math.round(parts[0] * 60 + parts[1])
+  if (parts.length === 1) return Math.round(parts[0])
+  return null
 }
 
 // ═══════════════════════ TIME RANGE SLIDER ═══════════════════════
@@ -257,6 +276,32 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
   const [endSec, setEndSec] = useState(duration ?? 0)
   const [ftype, setFtype] = useState<FormatType>('video')
   const [embedUrl, setEmbedUrl] = useState<string | null>(null)
+  // Manual time inputs
+  const [manualStart, setManualStart] = useState('')
+  const [manualEnd, setManualEnd] = useState('')
+  const [manualSeek, setManualSeek] = useState('')
+  const [manualStartErr, setManualStartErr] = useState(false)
+  const [manualEndErr, setManualEndErr] = useState(false)
+  const [manualSeekErr, setManualSeekErr] = useState(false)
+
+  /** Форматирует ввод цифр в маску HH:MM:SS по мере набора */
+  const formatTimeInput = (prev: string, next: string): string => {
+    // Если удаляем — просто убираем последний символ без маски
+    if (next.length < prev.replace(/:/g, '').length) {
+      const digits = prev.replace(/:/g, '')
+      const shorter = digits.slice(0, -1)
+      if (shorter.length === 0) return ''
+      if (shorter.length <= 2) return shorter
+      if (shorter.length <= 4) return shorter.slice(0,2) + ':' + shorter.slice(2)
+      return shorter.slice(0,2) + ':' + shorter.slice(2,4) + ':' + shorter.slice(4,6)
+    }
+    // Только цифры
+    const digits = next.replace(/[^0-9]/g, '').slice(0, 6)
+    if (digits.length === 0) return ''
+    if (digits.length <= 2) return digits
+    if (digits.length <= 4) return digits.slice(0,2) + ':' + digits.slice(2)
+    return digits.slice(0,2) + ':' + digits.slice(2,4) + ':' + digits.slice(4,6)
+  }
 
   const dur = duration ?? 0
 
@@ -336,13 +381,35 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
     try { await wv.executeJavaScript(js) } catch {}
   }
 
-  /** Seek + заморозить polling чтобы playhead не прыгал обратно */
+  /** Seek + заморозить polling пока плеер не достигнет цели (±3s) или макс 8s */
   const seekWithLock = (sec: number) => {
     if (seekTimerRef.current) clearTimeout(seekTimerRef.current)
     isSeekingRef.current = true
     setCurrentTime(sec)
     seekTo(sec)
-    seekTimerRef.current = setTimeout(() => { isSeekingRef.current = false }, 4000)
+    // Снимаем блокировку только когда плеер реально добрался до нужной позиции
+    const started = Date.now()
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const checkJs = isTwitchLocal
+      ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()`
+      : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
+    const poll = setInterval(async () => {
+      try {
+        const ct = await webviewRef.current?.executeJavaScript(checkJs)
+        if (typeof ct === 'number' && ct >= 0 && Math.abs(ct - sec) <= 3) {
+          clearInterval(poll)
+          seekTimerRef.current = null
+          isSeekingRef.current = false
+          return
+        }
+      } catch { /* ignore */ }
+      if (Date.now() - started > 8000) {
+        clearInterval(poll)
+        seekTimerRef.current = null
+        isSeekingRef.current = false
+      }
+    }, 300)
+    seekTimerRef.current = poll as unknown as ReturnType<typeof setTimeout>
   }
 
   const togglePlay = async () => {
@@ -388,6 +455,37 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
     const e = Math.ceil(ct)
     setEndSec(e)
     if (startSec >= e) setStartSec(Math.max(0, e - 30))
+  }
+
+  // Apply manual start input
+  const applyManualStart = () => {
+    const v = parseTimestamp(manualStart)
+    if (v === null || v < 0) { setManualStartErr(true); return }
+    setManualStartErr(false)
+    setManualStart('')
+    const clamped = Math.max(0, Math.min(v, (dur > 0 ? dur : 999999) - 1))
+    setStartSec(clamped)
+    if (endSec <= clamped) setEndSec(Math.min(clamped + 30, dur > 0 ? dur : clamped + 30))
+  }
+
+  // Apply manual end input
+  const applyManualEnd = () => {
+    const v = parseTimestamp(manualEnd)
+    if (v === null || v <= 0) { setManualEndErr(true); return }
+    setManualEndErr(false)
+    setManualEnd('')
+    const clamped = dur > 0 ? Math.min(v, dur) : v
+    setEndSec(clamped)
+    if (startSec >= clamped) setStartSec(Math.max(0, clamped - 30))
+  }
+
+  // Apply manual seek input
+  const applyManualSeek = () => {
+    const v = parseTimestamp(manualSeek)
+    if (v === null || v < 0) { setManualSeekErr(true); return }
+    setManualSeekErr(false)
+    setManualSeek('')
+    seekWithLock(v)
   }
 
   // ── Drag logic for timeline handles ──
@@ -499,30 +597,95 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
 
       {/* Mark + download row */}
       <div className="vp-footer">
-        <button className="vp-mark-btn vp-mark-s" onClick={markStart} disabled={!ready}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="4" y="3" width="3" height="18" rx="1" fill="currentColor" stroke="none"/><line x1="7" y1="12" x2="20" y2="12"/></svg>
-          {t.vp_mark_start}
-        </button>
-        <button className="vp-mark-btn vp-mark-e" onClick={markEnd} disabled={!ready}>
-          {t.vp_mark_end}
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="17" y="3" width="3" height="18" rx="1" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="17" y2="12"/></svg>
-        </button>
-        <div className="vp-fmt-row">
-          <button className={`vp-fmt-tab ${ftype==='video'?'vp-fmt-on':''}`} onClick={() => setFtype('video')}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-            Video
-          </button>
-          <button className={`vp-fmt-tab ${ftype==='audio'?'vp-fmt-on':''}`} onClick={() => setFtype('audio')}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-            Audio
+        <div className="vp-button-flow transparent">
+          <div className="vp-fmt-row-buttonBack">
+            <button className="vp-mark-btn vp-mark-s" onClick={markStart} disabled={!ready}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="4" y="3" width="3" height="18" rx="1" fill="currentColor" stroke="none"/><line x1="7" y1="12" x2="20" y2="12"/></svg>
+              {t.vp_mark_start}
+            </button>
+          </div>
+                  {/* Row 2: manual time inputs */}
+        <div className="vp-footer-row2">
+          <div className="vp-time-group">
+            <span className="vp-time-label">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="3" width="3" height="18" rx="1"/></svg>
+              {t.vp_input_start}
+            </span>
+            <div className={`vp-time-field ${manualStartErr ? 'vp-time-err' : ''}`}>
+              <input className="vp-time-input" type="text" placeholder="00:00:00"
+                value={manualStart}
+                onChange={e => { setManualStart(v => formatTimeInput(v, e.target.value)); setManualStartErr(false) }}
+                onKeyDown={e => e.key === 'Enter' && applyManualStart()}
+              />
+              <button className="vp-time-apply" onClick={applyManualStart} title="Apply">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="vp-time-group">
+            <span className="vp-time-label">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="17" y="3" width="3" height="18" rx="1"/></svg>
+              {t.vp_input_end}
+            </span>
+            <div className={`vp-time-field ${manualEndErr ? 'vp-time-err' : ''}`}>
+              <input className="vp-time-input" type="text" placeholder="00:00:00"
+                value={manualEnd}
+                onChange={e => { setManualEnd(v => formatTimeInput(v, e.target.value)); setManualEndErr(false) }}
+                onKeyDown={e => e.key === 'Enter' && applyManualEnd()}
+              />
+              <button className="vp-time-apply" onClick={applyManualEnd} title="Apply">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="vp-time-group">
+            <span className="vp-time-label">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              {t.vp_input_seek}
+            </span>
+            <div className={`vp-time-field ${manualSeekErr ? 'vp-time-err' : ''}`}>
+              <input className="vp-time-input" type="text" placeholder="00:00:00"
+                value={manualSeek}
+                onChange={e => { setManualSeek(v => formatTimeInput(v, e.target.value)); setManualSeekErr(false) }}
+                onKeyDown={e => e.key === 'Enter' && applyManualSeek()}
+              />
+              <button className="vp-time-apply" onClick={applyManualSeek} title="Go">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <span className="vp-time-hint">HH:MM:SS</span>
+        </div>
+          <div className="vp-fmt-row-buttonBack">
+            <button className="vp-mark-btn vp-mark-e" onClick={markEnd} disabled={!ready}>
+              {t.vp_mark_end}
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="17" y="3" width="3" height="18" rx="1" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="17" y2="12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div className="vp-fmt-pow">
+          <div className="vp-fmt-row">
+            <button className={`vp-fmt-tab ${ftype==='video'?'vp-fmt-on':''}`} onClick={() => setFtype('video')}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+              Video
+            </button>
+            <button className={`vp-fmt-tab ${ftype==='audio'?'vp-fmt-on':''}`} onClick={() => setFtype('audio')}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              Audio
+            </button>
+          </div>
+        </div>
+        <div className="vp-fmt-row-buttonBack">
+          <button className="vp-dl-btn" disabled={selectedDur <= 0}
+            onClick={() => onDownload(ftype, dlQuality, { start: startSec, end: dur > 0 && endSec >= dur ? -1 : endSec })}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
+            {t.vp_download}
+            <span className="vp-dl-range">{secsToTimestamp(startSec)} → {secsToTimestamp(endSec)}</span>
           </button>
         </div>
-        <button className="vp-dl-btn" disabled={selectedDur <= 0}
-          onClick={() => onDownload(ftype, dlQuality, { start: startSec, end: dur > 0 && endSec >= dur ? -1 : endSec })}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
-          {t.vp_download}
-          <span className="vp-dl-range">{secsToTimestamp(startSec)} → {secsToTimestamp(endSec)}</span>
-        </button>
       </div>
     </div>
   )
@@ -566,6 +729,10 @@ declare global {
       downloadAndInstallUpdate: (url: string, name: string) => Promise<{ success: boolean; error?: string }>
       onUpdateAvailable: (cb: (d: UpdateInfo) => void) => () => void
       onUpdateDownloadProgress: (cb: (pct: number) => void) => () => void
+      // ffmpeg
+      checkFfmpeg: () => Promise<{ exists: boolean; path: string }>
+      downloadFfmpeg: () => Promise<{ success: boolean; path?: string; error?: string }>
+      onFfmpegDownloadProgress: (cb: (d: { step: string }) => void) => () => void
     }
   }
 }
@@ -617,6 +784,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
   const t = translations[lang]
   const NAV: { id: View; label: string; icon: JSX.Element }[] = [
     { id:'download', label:t.nav_download, icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg> },
+    { id:'stream',   label:t.nav_stream,   icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></svg> },
     { id:'history',  label:t.nav_history,  icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg> },
     { id:'settings', label:t.nav_settings, icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> },
   ]
@@ -643,7 +811,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }: {
           <span className={`lang-opt ${lang==='ru'?'lang-opt-on':''}`}>RU</span>
         </button>
         <div className="sb-status-row"><span className="sb-dot"/><span className="sb-ready">{t.status_ready}</span></div>
-        <div className="sb-version">v1.0.4</div>
+        <div className="sb-version">v1.0.5</div>
       </div>
     </aside>
   )
@@ -1000,8 +1168,8 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
 const STATUS_COLOR: Record<DownloadStatus,string> = { pending:'#60A5FA', downloading:'#4ADE80', processing:'#FACC15', complete:'#4ADE80', error:'#EF4444', cancelled:'#475569' }
 const STATUS_LABEL = (t: Translations): Record<DownloadStatus,string> => ({ pending:t.st_pending, downloading:t.st_downloading, processing:t.st_processing, complete:t.st_complete, error:t.st_error, cancelled:t.st_cancelled })
 
-function DownloadCard({ item, onCancel, onOpen, onCookieHint, t }: {
-  item: DownloadItem; onCancel: (id: string) => void; onOpen: (id: string) => void; onCookieHint: () => void; t: Translations
+function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t }: {
+  item: DownloadItem; onCancel: (id: string) => void; onOpen: (id: string) => void; onCookieHint: () => void; onFfmpegHint: () => void; t: Translations
 }) {
   const c = STATUS_COLOR[item.status]
   const labels = STATUS_LABEL(t)
@@ -1037,6 +1205,12 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, t }: {
               <button className="dl-cookie-hint" onClick={onCookieHint}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 {t.err_cookie_hint}
+              </button>
+            )}
+            {isFfmpegError(item.error) && (
+              <button className="dl-cookie-hint dl-ffmpeg-hint" onClick={onFfmpegHint}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                {t.err_ffmpeg_install ?? 'Install ffmpeg'}
               </button>
             )}
           </div>
@@ -1331,6 +1505,284 @@ function SetupOverlay({ onSetup, loading, error, t }: { onSetup: () => void; loa
   )
 }
 
+// ═══════════════════════ STREAM VIEW ═══════════════════════
+
+function normalizeTwitchChannel(val: string): string {
+  const v = val.trim()
+  if (!v) return ''
+  // full URL — extract channel name
+  try {
+    const u = new URL(v.startsWith('http') ? v : `https://${v}`)
+    if (u.hostname.includes('twitch.tv')) {
+      const parts = u.pathname.split('/').filter(Boolean)
+      if (parts.length >= 1) return parts[0].toLowerCase()
+    }
+  } catch { /* ignore */ }
+  // plain nickname — no dots, no slashes
+  if (!v.includes('.') && !v.includes('/')) return v.toLowerCase()
+  return v.toLowerCase()
+}
+
+function StreamView({ t, downloadPath, persistedInput, persistedChannelName, persistedMarkers, onInputChange, onChannelChange, onMarkersChange, onStartDownload }: {
+  t: Translations
+  downloadPath: string
+  persistedInput: string
+  persistedChannelName: string | null
+  persistedMarkers: StreamMarker[]
+  onInputChange: (v: string) => void
+  onChannelChange: (v: string | null) => void
+  onMarkersChange: (v: StreamMarker[]) => void
+  onStartDownload: (item: DownloadItem, formatArgs: string[]) => void
+}) {
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null)
+  const [playerReady, setPlayerReady] = useState(false)
+  const [streamPos, setStreamPos] = useState(0)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const webviewRef = useRef<any>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // При маунте — восстанавливаем плеер если уже был открыт канал
+  useEffect(() => {
+    if (persistedChannelName && !embedUrl) {
+      window.api.getPreviewPort().then(port => {
+        setEmbedUrl(`http://localhost:${port}/?channel=${persistedChannelName}`)
+      }).catch(() => {
+        setEmbedUrl(`https://player.twitch.tv/?channel=${persistedChannelName}&parent=localhost&autoplay=true`)
+      })
+    }
+  }, [])
+
+  // Подписка на dom-ready
+  useEffect(() => {
+    const wv = webviewRef.current
+    if (!wv || !embedUrl) return
+
+    const onReady = async () => {
+      setPlayerReady(true)
+      try {
+        await wv.insertCSS(`
+          html, body { margin: 0 !important; padding: 0 !important; background: #000 !important; }
+          .channel-info-bar, .top-bar, [data-a-target="player-overlay-mature-accept"],
+          [data-test-selector="subscribe-button__subscribe-button"] { display: none !important; }
+        `)
+      } catch { /* ignore */ }
+    }
+
+    const fallback = setTimeout(() => setPlayerReady(true), 8000)
+    wv.addEventListener('dom-ready', onReady)
+    wv.addEventListener('did-finish-load', onReady)
+    return () => {
+      clearTimeout(fallback)
+      wv.removeEventListener('dom-ready', onReady)
+      wv.removeEventListener('did-finish-load', onReady)
+    }
+  }, [embedUrl])
+
+  // Polling реального времени из Twitch-плеера
+  // Использует __getStreamPos() — реальное время трансляции (не время сессии просмотра).
+  // __getStreamPos() вычисляется от stream.createdAt через Twitch GQL API.
+  useEffect(() => {
+    if (!playerReady) return
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const ct = await webviewRef.current?.executeJavaScript(
+          `(()=>{try{
+            if(typeof window.__getStreamPos==='function'){
+              var p=window.__getStreamPos();
+              if(p>0)return p;
+            }
+            if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function'){
+              var c=Math.floor(window.__twitchPlayer.getCurrentTime());
+              if(c>0)return c;
+            }
+            return -1;
+          }catch(e){return -1}})()`
+        )
+        if (typeof ct === 'number' && ct > 0) setStreamPos(ct)
+      } catch { /* ignore */ }
+    }, 1000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [playerReady])
+
+  const handleWatch = () => {
+    const ch = normalizeTwitchChannel(persistedInput)
+    if (!ch) return
+    onChannelChange(ch)
+    setPlayerReady(false)
+    setStreamPos(0)
+    onMarkersChange([])
+    window.api.getPreviewPort().then(port => {
+      setEmbedUrl(`http://localhost:${port}/?channel=${ch}`)
+    }).catch(() => {
+      setEmbedUrl(`https://player.twitch.tv/?channel=${ch}&parent=localhost&autoplay=true`)
+    })
+  }
+
+  const addMarker = () => {
+    if (!newName.trim()) return
+    const m: StreamMarker = { id: genId(), name: newName.trim(), description: newDesc.trim(), streamPos, createdAt: Date.now() }
+    onMarkersChange([...persistedMarkers, m])
+    setNewName(''); setNewDesc(''); setShowAddForm(false)
+  }
+
+  const addPresetMarker = (label: string) => {
+    onMarkersChange([...persistedMarkers, { id: genId(), name: label, description: '', streamPos, createdAt: Date.now() }])
+  }
+
+  const deleteMarker = (id: string) => onMarkersChange(persistedMarkers.filter(m => m.id !== id))
+
+  const cutLast5Min = () => {
+    if (!persistedChannelName) return
+    const endSec = streamPos
+    const startSec = Math.max(0, endSec - 300)
+    const url = `https://www.twitch.tv/${persistedChannelName}`
+    const id = genId()
+    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`]
+    onStartDownload({
+      id, url,
+      title: `${persistedChannelName} — last 5 min`,
+      formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      status: 'pending', progress: 0, createdAt: Date.now()
+    }, argsWithSection)
+  }
+
+  const cutFromMarker = (m: StreamMarker) => {
+    if (!persistedChannelName) return
+    const endSec = streamPos
+    const startSec = m.streamPos
+    if (endSec <= startSec) return
+    const url = `https://www.twitch.tv/${persistedChannelName}`
+    const id = genId()
+    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`]
+    onStartDownload({
+      id, url,
+      title: `${persistedChannelName} — ${m.name}`,
+      formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      status: 'pending', progress: 0, createdAt: Date.now()
+    }, argsWithSection)
+  }
+
+  const PRESETS = ['Highlight', 'Fail', 'Clip this', 'Important']
+
+  return (
+    <div className="stream-view">
+      {/* Input row */}
+      <div className="stream-input-row">
+        <div className="stream-input-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+          <input
+            className="stream-input"
+            type="text"
+            placeholder={t.stream_placeholder}
+            value={persistedInput}
+            onChange={e => onInputChange(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleWatch()}
+          />
+        </div>
+        <button className="stream-watch-btn" onClick={handleWatch} disabled={!persistedInput.trim()}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          {t.stream_watch}
+        </button>
+      </div>
+
+      {!persistedChannelName && (
+        <div className="stream-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.35"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+          <p>{t.stream_hint}</p>
+        </div>
+      )}
+
+      {persistedChannelName && embedUrl && (
+        <div className="stream-body">
+          {/* Player */}
+          <div className="stream-player-wrap">
+            <div className="stream-player-header">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="#9146FF"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
+              <span className="stream-channel-label">{persistedChannelName}</span>
+              <span className="stream-live-badge">{t.stream_live_badge}</span>
+              <span className="stream-timer">{secsToTimestamp(streamPos)}</span>
+              <button className="stream-cut5-btn" onClick={cutLast5Min} disabled={streamPos < 30}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
+                {t.stream_cut_5min}
+              </button>
+            </div>
+            <div className="stream-webview-wrap">
+              {!playerReady && <div className="stream-player-loading"><span className="spin"/></div>}
+              <webview
+                ref={webviewRef}
+                src={embedUrl}
+                className="stream-webview"
+                partition="persist:preview"
+                allowpopups={false}
+                useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                style={{ visibility: playerReady ? 'visible' : 'hidden', width: '100%', height: '100%' }}
+              />
+            </div>
+          </div>
+
+          {/* Markers panel */}
+          <div className="stream-markers-panel">
+            <div className="stream-markers-head">
+              <span className="stream-markers-title">{t.stream_markers_title}</span>
+              <span className="stream-markers-count">{persistedMarkers.length}</span>
+            </div>
+            <div className="stream-presets">
+              {PRESETS.map(label => (
+                <button key={label} className="stream-preset-btn" onClick={() => addPresetMarker(label)} disabled={!playerReady}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {!showAddForm ? (
+              <button className="stream-add-marker-btn" onClick={() => setShowAddForm(true)} disabled={!playerReady}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                {t.stream_add_marker}
+              </button>
+            ) : (
+              <div className="stream-marker-form">
+                <div className="smf-pos">{t.stream_at} {secsToTimestamp(streamPos)}</div>
+                <input className="smf-input" placeholder={t.stream_marker_name} value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addMarker()} autoFocus/>
+                <input className="smf-input smf-input-desc" placeholder={t.stream_marker_desc} value={newDesc} onChange={e => setNewDesc(e.target.value)} onKeyDown={e => e.key === 'Enter' && addMarker()}/>
+                <div className="smf-btns">
+                  <button className="smf-save" onClick={addMarker} disabled={!newName.trim()}>{t.stream_marker_save}</button>
+                  <button className="smf-cancel" onClick={() => { setShowAddForm(false); setNewName(''); setNewDesc('') }}>{t.stream_marker_cancel}</button>
+                </div>
+              </div>
+            )}
+            <div className="stream-markers-list">
+              {persistedMarkers.length === 0 && <div className="stream-no-markers">{t.stream_no_markers}</div>}
+              {[...persistedMarkers].reverse().map(m => (
+                <div key={m.id} className="stream-marker-item">
+                  <div className="smi-left">
+                    <span className="smi-dot"/>
+                    <div className="smi-info">
+                      <span className="smi-name">{m.name}</span>
+                      {m.description && <span className="smi-desc">{m.description}</span>}
+                      <span className="smi-time">{t.stream_at} {secsToTimestamp(m.streamPos)}</span>
+                    </div>
+                  </div>
+                  <div className="smi-actions">
+                    <button className="smi-cut" onClick={() => cutFromMarker(m)} disabled={streamPos <= m.streamPos} title={t.stream_cut_from}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16l-4-4h2.5V4h3v8H16l-4 4z"/><path d="M20 18H4"/></svg>
+                      {t.stream_cut_from}
+                    </button>
+                    <button className="smi-del" onClick={() => deleteMarker(m.id)} title={t.stream_marker_delete}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ═══════════════════════ MAIN APP ═══════════════════════
 
 export default function App() {
@@ -1353,6 +1805,10 @@ export default function App() {
   const [platform, setPlatform] = useState<Platform>('youtube')
   const [twitchChannel, setTwitchChannel] = useState<string | null>(null)
   const [showPlayer, setShowPlayer] = useState(false)
+  // Persistent stream state — survives tab switches
+  const [streamInput, setStreamInput] = useState('')
+  const [streamChannelName, setStreamChannelName] = useState<string | null>(null)
+  const [streamMarkers, setStreamMarkers] = useState<StreamMarker[]>([])
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const urlRef = useRef('')
@@ -1518,6 +1974,21 @@ export default function App() {
 
   const handleCookieHint = useCallback(() => { setView('settings'); setHighlightCookies(true); setTimeout(() => setHighlightCookies(false), 2500) }, [])
 
+  const handleFfmpegHint = useCallback(async () => {
+    const id = `ffmpeg_install_${Date.now()}`
+    setDownloads(p => [{ id, url:'', title:'Installing ffmpeg...', formatLabel:'System', status:'downloading', progress:0, createdAt:Date.now() }, ...p])
+    const unsub = window.api?.onFfmpegDownloadProgress?.((d) => {
+      setDownloads(p => p.map(x => x.id===id ? {...x, title:`ffmpeg: ${d.step}`} : x))
+    })
+    const r = await window.api?.downloadFfmpeg()
+    unsub?.()
+    if (r?.success) {
+      setDownloads(p => p.map(x => x.id===id ? {...x, status:'complete', title:'ffmpeg installed ✓', progress:100} : x))
+    } else {
+      setDownloads(p => p.map(x => x.id===id ? {...x, status:'error', title:'ffmpeg install failed', error:r?.error ?? 'Unknown error'} : x))
+    }
+  }, [])
+
   const handleCancel = useCallback(async (id: string) => {
     await window.api?.cancelDownload(id)
     setDownloads(p => {
@@ -1541,7 +2012,7 @@ export default function App() {
       <TitleBar/>
       <div className="app-body">
         <Sidebar view={view} onChange={setView} activeCount={activeCount} lang={lang} onLangToggle={toggleLang}/>
-        <main className="main">
+        <main className={`main${view === 'stream' ? ' main-stream' : ''}`}>
           {view==='download' && (
             <div className="dl-view">
               <UrlInput onFetch={handleFetch} loading={fetching} t={t} platform={platform} onPlatformChange={setPlatform}/>
@@ -1586,13 +2057,27 @@ export default function App() {
               {downloads.length>0 && (
                 <div className="queue-section">
                   <div className="queue-head"><span className="section-eyebrow-sm">{t.lbl_downloads}</span>{activeCount>0&&<span className="queue-badge">{activeCount} {t.lbl_active}</span>}</div>
-                  <div className="queue-list">{downloads.slice(0,15).map(d=><DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} t={t}/>)}</div>
+                  <div className="queue-list">{downloads.slice(0,15).map(d=><DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} onFfmpegHint={handleFfmpegHint} t={t}/>)}</div>
                 </div>
               )}
             </div>
           )}
           {view==='history' && <HistoryView downloads={downloads} t={t} onClear={async()=>{ await clearHistory(); setDownloads(p=>p.filter(d=>d.status==='downloading'||d.status==='pending')) }}/>}
           {view==='settings' && <SettingsView settings={settings} onSave={handleSaveSettings} onPickFolder={handlePickFolder} t={t} theme={theme} onThemeChange={handleThemeChange} highlightCookies={highlightCookies} autoCheckUpdates={autoCheckUpdates} onAutoCheckChange={handleAutoCheckChange} onManualCheck={handleManualCheck}/>}
+          {view==='stream' && <StreamView
+            t={t}
+            downloadPath={settings.downloadPath}
+            persistedInput={streamInput}
+            persistedChannelName={streamChannelName}
+            persistedMarkers={streamMarkers}
+            onInputChange={setStreamInput}
+            onChannelChange={setStreamChannelName}
+            onMarkersChange={setStreamMarkers}
+            onStartDownload={(item, formatArgs) => {
+              setDownloads(p => [item, ...p])
+              window.api.startDownload({ id: item.id, url: item.url, formatArgs, downloadPath: settings.downloadPath })
+            }}
+          />}
         </main>
       </div>
     </div>
