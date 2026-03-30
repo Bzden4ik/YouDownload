@@ -6980,6 +6980,10 @@ const translations = {
     vk_hint: "VK Videos · vk.com/video · vkvideo.ru",
     twitch_channel_vods: "Past Broadcasts",
     twitch_channel_clips: "Clips",
+    twitch_pin: "Pin",
+    twitch_pinned: "Pinned",
+    twitch_pin_hint: "Remember forever (no expiry)",
+    twitch_pinned_hint: "Cached forever — click to use 7-day TTL instead",
     twitch_loading: "Loading...",
     twitch_empty: "Nothing found",
     twitch_select: "Select a video to download",
@@ -6987,6 +6991,14 @@ const translations = {
     twitch_sel_clear: "Clear",
     twitch_sel_download: "Download selected",
     twitch_search_placeholder: "Search by title...",
+    twitch_date_filter_label: "Filter by date",
+    twitch_date_from: "From",
+    twitch_date_to: "To",
+    twitch_date_exact: "Exact date",
+    twitch_date_mode_range: "Date range",
+    twitch_date_mode_exact: "Exact date",
+    twitch_date_clear: "Clear filter",
+    twitch_date_no_date: "Date unknown",
     btn_paste: "Paste",
     btn_fetch: "Fetch",
     // Format selector
@@ -7050,6 +7062,10 @@ const translations = {
     set_extract_vk_cookies_hint: "Required for private VK videos (in messages, closed groups). Opens VK in a built-in window — sign in once, session is saved.",
     set_extract_vk_ok: "VK cookies saved ✓",
     set_extract_vk_fail: "No VK cookies found",
+    set_extract_twitch_cookies: "Twitch Account",
+    set_extract_twitch_cookies_hint: "Sign in once — the session is saved and the chat opens already logged in next time.",
+    set_extract_twitch_ok: "Signed in to Twitch ✓",
+    set_extract_twitch_fail: "Sign-in not detected — please close the window after signing in",
     // Setup overlay
     setup_sub: "First launch: downloading yt-dlp engine (~10 MB from GitHub)",
     setup_init: "Initialize Engine",
@@ -7084,7 +7100,7 @@ const translations = {
     stream_live_badge: "LIVE",
     stream_markers_title: "Markers",
     stream_add_marker: "+ Add marker",
-    stream_cut_5min: "Cut last 5 min",
+    stream_cut_label: "Cut last",
     stream_marker_name: "Name",
     stream_marker_desc: "Description (optional)",
     stream_marker_save: "Save",
@@ -7093,7 +7109,23 @@ const translations = {
     stream_cut_from: "Cut from here",
     stream_no_markers: "No markers yet",
     stream_at: "at",
-    stream_hint: "Enter a Twitch channel to watch the live stream and mark moments"
+    stream_hint: "Enter a Twitch channel to watch the live stream and mark moments",
+    stream_tab_live: "Live",
+    stream_tab_sessions: "Watched",
+    stream_sessions_empty: "No watched streams yet",
+    stream_session_markers: "markers",
+    stream_session_delete: "Delete",
+    stream_session_no_markers: "No markers",
+    stream_chat: "Chat",
+    flp_title: "Live now",
+    flp_refresh: "Refresh",
+    flp_empty: "No followed channels are live right now",
+    flp_login_hint: "Sign in to Twitch in Settings to see live channels you follow",
+    flp_updated: "Updated at",
+    stream_back: "Back",
+    flp_fav: "Add to favorites",
+    flp_unfav: "Remove from favorites",
+    flp_offline: "Offline"
   },
   ru: {
     // Sidebar
@@ -7108,6 +7140,10 @@ const translations = {
     vk_hint: "VK Видео · vk.com/video · vkvideo.ru",
     twitch_channel_vods: "Трансляции",
     twitch_channel_clips: "Клипы",
+    twitch_pin: "Закрепить",
+    twitch_pinned: "Закреплено",
+    twitch_pin_hint: "Запомнить навсегда (без срока)",
+    twitch_pinned_hint: "Кэш навсегда — нажми чтобы вернуть 7-дневный срок",
     twitch_loading: "Загружаю...",
     twitch_empty: "Ничего не найдено",
     twitch_select: "Выберите видео для скачивания",
@@ -7115,6 +7151,14 @@ const translations = {
     twitch_sel_clear: "Сбросить",
     twitch_sel_download: "Скачать выбранное",
     twitch_search_placeholder: "Поиск по названию...",
+    twitch_date_filter_label: "Фильтр по дате",
+    twitch_date_from: "С",
+    twitch_date_to: "По",
+    twitch_date_exact: "Точная дата",
+    twitch_date_mode_range: "Диапазон",
+    twitch_date_mode_exact: "Точная дата",
+    twitch_date_clear: "Сбросить",
+    twitch_date_no_date: "Дата неизвестна",
     btn_paste: "Вставить",
     btn_fetch: "Найти",
     // Format selector
@@ -7178,6 +7222,10 @@ const translations = {
     set_extract_vk_cookies_hint: "Нужно для приватных видео ВК (переписки, закрытые группы). Откроет встроенное окно — войдите один раз, сессия сохранится.",
     set_extract_vk_ok: "Куки ВК сохранены ✓",
     set_extract_vk_fail: "Куки ВК не найдены",
+    set_extract_twitch_cookies: "Аккаунт Twitch",
+    set_extract_twitch_cookies_hint: "Войдите один раз — сессия сохранится и чат будет открываться уже залогиненным.",
+    set_extract_twitch_ok: "Вошли в Twitch ✓",
+    set_extract_twitch_fail: "Вход не обнаружен — закройте окно после входа в аккаунт",
     // Setup overlay
     setup_sub: "Первый запуск: скачивание движка yt-dlp (~10 МБ с GitHub)",
     setup_init: "Инициализировать",
@@ -7212,7 +7260,7 @@ const translations = {
     stream_live_badge: "LIVE",
     stream_markers_title: "Отметки",
     stream_add_marker: "+ Добавить отметку",
-    stream_cut_5min: "Вырезать последние 5 мин",
+    stream_cut_label: "Вырезать",
     stream_marker_name: "Название",
     stream_marker_desc: "Описание (необязательно)",
     stream_marker_save: "Сохранить",
@@ -7221,9 +7269,53 @@ const translations = {
     stream_cut_from: "Вырезать отсюда",
     stream_no_markers: "Отметок пока нет",
     stream_at: "в",
-    stream_hint: "Введи ник канала Twitch, чтобы смотреть трансляцию и ставить отметки"
+    stream_hint: "Введи ник канала Twitch, чтобы смотреть трансляцию и ставить отметки",
+    stream_tab_live: "Эфир",
+    stream_tab_sessions: "Просмотренные",
+    stream_sessions_empty: "Просмотренных трансляций нет",
+    stream_session_markers: "отметок",
+    stream_session_delete: "Удалить",
+    stream_session_no_markers: "Без отметок",
+    stream_chat: "Чат",
+    flp_title: "Сейчас онлайн",
+    flp_refresh: "Обновить",
+    flp_empty: "Никто из подписок сейчас не стримит",
+    flp_login_hint: "Войди в Twitch в Настройках, чтобы видеть живые каналы подписок",
+    flp_updated: "Обновлено в",
+    stream_back: "Назад",
+    flp_fav: "В избранное",
+    flp_unfav: "Убрать из избранного",
+    flp_offline: "Оффлайн"
   }
 };
+async function loadStreamSessions() {
+  try {
+    const s = await window.api.getAppState();
+    return s.streamSessions ?? [];
+  } catch {
+    return [];
+  }
+}
+async function saveStreamSessions(sessions) {
+  try {
+    await window.api.saveAppState({ streamSessions: sessions });
+  } catch {
+  }
+}
+async function loadFavStreamers() {
+  try {
+    const s = await window.api.getAppState();
+    return s.favStreamers ?? [];
+  } catch {
+    return [];
+  }
+}
+async function saveFavStreamers(logins) {
+  try {
+    await window.api.saveAppState({ favStreamers: logins });
+  } catch {
+  }
+}
 const DEFAULTS = {
   lang: "en",
   theme: "fleet",
@@ -7273,6 +7365,12 @@ function isCookieError(err) {
   const l2 = err.toLowerCase();
   return l2.includes("cookie") || l2.includes("sign in") || l2.includes("login") || l2.includes("403") || l2.includes("age-restricted") || l2.includes("private") || l2.includes("members") || l2.includes("dpapi") || l2.includes("chrome cookie") || l2.includes("could not copy") || l2.includes("requires authentication") || l2.includes("confirm your age") || l2.includes("not available") || l2.includes("access restricted");
 }
+function isAgeGate(err) {
+  return err === "age_gate";
+}
+function isSslError(err) {
+  return err === "ssl_error";
+}
 function isFfmpegError(err) {
   const l2 = err.toLowerCase();
   return l2.includes("ffmpeg") && (l2.includes("not installed") || l2.includes("not found") || l2.includes("aborting") || l2.includes("is not installed"));
@@ -7287,6 +7385,16 @@ function formatViews(n2, t2) {
   if (n2 >= 1e6) return `${(n2 / 1e6).toFixed(1)}M ${t2.views}`;
   if (n2 >= 1e3) return `${(n2 / 1e3).toFixed(0)}K ${t2.views}`;
   return `${n2} ${t2.views}`;
+}
+function formatCacheAge(fetchedAt) {
+  const diffMs = Date.now() - fetchedAt;
+  const mins = Math.floor(diffMs / 6e4);
+  const hours = Math.floor(diffMs / 36e5);
+  const days = Math.floor(diffMs / 864e5);
+  if (days >= 1) return `${days}d ago`;
+  if (hours >= 1) return `${hours}h ago`;
+  if (mins >= 1) return `${mins}m ago`;
+  return "just now";
 }
 function detectPlatform(url) {
   if (url.includes("twitch.tv")) return "twitch";
@@ -7336,7 +7444,7 @@ function getFormatArgs(type, quality) {
     return map[quality] ?? map.mp3_best;
   }
   const q2 = quality;
-  return ["-f", `bestvideo[height<=${q2}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${q2}]+bestaudio/bestvideo+bestaudio`, "--merge-output-format", "mp4"];
+  return ["-f", `bestvideo[height<=${q2}]+bestaudio/bestvideo[height<=${q2}]+bestaudio[ext=m4a]/bestvideo+bestaudio`, "--merge-output-format", "mp4", "--remux-video", "mp4"];
 }
 function getFormatLabel(type, quality) {
   if (type === "audio") {
@@ -7445,11 +7553,24 @@ function extractEmbedId(url, platform) {
 function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 }) {
   const webviewRef = reactExports.useRef(null);
   const trackRef = reactExports.useRef(null);
+  const panelRef = reactExports.useRef(null);
   const draggingRef = reactExports.useRef(null);
+  const resizingRef = reactExports.useRef(null);
+  const resizeStartRef = reactExports.useRef(null);
+  const saveSizeTimerRef = reactExports.useRef(null);
+  const [panelSize, setPanelSize] = reactExports.useState({ width: null, height: null });
+  reactExports.useEffect(() => {
+    window.api.getAppState().then((s) => {
+      const w2 = typeof s.playerPanelWidth === "number" ? s.playerPanelWidth : null;
+      const h = typeof s.playerPanelHeight === "number" ? s.playerPanelHeight : null;
+      if (w2 || h) setPanelSize({ width: w2, height: h });
+    }).catch(() => {
+    });
+  }, []);
   const isSeekingRef = reactExports.useRef(false);
   const seekTimerRef = reactExports.useRef(null);
   const [ready, setReady] = reactExports.useState(false);
-  const [playing, setPlaying] = reactExports.useState(true);
+  const [playing, setPlaying] = reactExports.useState(false);
   const [currentTime, setCurrentTime] = reactExports.useState(0);
   const [startSec, setStartSec] = reactExports.useState(0);
   const [endSec, setEndSec] = reactExports.useState(duration ?? 0);
@@ -7477,6 +7598,41 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
     return digits.slice(0, 2) + ":" + digits.slice(2, 4) + ":" + digits.slice(4, 6);
   };
   const dur = duration ?? 0;
+  const startResize = (dir) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    resizingRef.current = dir;
+    resizeStartRef.current = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height };
+    const onMove = (me2) => {
+      const s = resizeStartRef.current;
+      const dx = me2.clientX - s.x;
+      const dy = me2.clientY - s.y;
+      let newW = s.w;
+      let newH = s.h;
+      const dir2 = resizingRef.current;
+      if (dir2.includes("e")) newW = Math.max(340, s.w + dx);
+      if (dir2.includes("w")) newW = Math.max(340, s.w - dx);
+      if (dir2.includes("s")) newH = Math.max(300, s.h + dy);
+      if (dir2.includes("n")) newH = Math.max(300, s.h - dy);
+      setPanelSize({ width: newW, height: newH });
+      if (saveSizeTimerRef.current) clearTimeout(saveSizeTimerRef.current);
+      saveSizeTimerRef.current = setTimeout(() => {
+        window.api.saveAppState({ playerPanelWidth: Math.round(newW), playerPanelHeight: Math.round(newH) }).catch(() => {
+        });
+      }, 600);
+    };
+    const onUp = () => {
+      resizingRef.current = null;
+      resizeStartRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
   reactExports.useEffect(() => {
     if (platform === "twitch") {
       const id2 = extractEmbedId(url, platform);
@@ -7491,7 +7647,15 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
       });
     } else {
       const id2 = extractEmbedId(url, platform);
-      setEmbedUrl(id2 ? `https://www.youtube.com/embed/${id2}?autoplay=0&controls=1&rel=0&enablejsapi=1` : null);
+      if (!id2) {
+        setEmbedUrl(null);
+        return;
+      }
+      window.api.getPreviewPort().then((port) => {
+        setEmbedUrl(`http://localhost:${port}/?yt=${id2}`);
+      }).catch(() => {
+        setEmbedUrl(null);
+      });
     }
   }, [url, platform]);
   reactExports.useEffect(() => {
@@ -7499,17 +7663,56 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
     if (!wv) return;
     const onReady = async () => {
       setReady(true);
+      const isYtLocal = embedUrl?.includes("?yt=");
       try {
-        await wv.insertCSS(`
-          html, body { margin: 0 !important; padding: 0 !important; background: #000 !important; }
-          /* Hide subscribe/follow/mature banners that overlay the video */
-          [data-a-target="player-overlay-mature-accept"],
-          [data-test-selector="subscribe-button__subscribe-button"],
-          .channel-info-bar, .top-bar {
-            display: none !important;
-          }
-        `);
+        if (platform === "youtube" && !isYtLocal) {
+          await wv.insertCSS(`
+            html, body { margin: 0; padding: 0; background: #000 !important; overflow: hidden; }
+            .ytp-ad-module, .video-ads, .ytp-ad-overlay-container,
+            .ytp-ad-text-overlay, .ytp-ad-image-overlay,
+            .ytp-ad-player-overlay-instream-info,
+            .ytp-ad-skip-button-container, .ytp-ad-visit-advertiser-button,
+            .ytp-ad-progress, .ytp-ad-progress-list,
+            .ytp-cards-button, .ytp-watermark,
+            .ytp-share-button, .ytp-subtitles-button { display: none !important; }
+          `);
+        } else if (platform === "youtube" && isYtLocal) {
+        } else {
+          await wv.insertCSS(`
+            html, body { margin: 0 !important; padding: 0 !important; background: #000 !important; }
+            [data-a-target="player-overlay-mature-accept"],
+            [data-test-selector="subscribe-button__subscribe-button"],
+            .channel-info-bar, .top-bar {
+              display: none !important;
+            }
+          `);
+        }
       } catch {
+      }
+      if (platform === "youtube" && isYtLocal) {
+        setTimeout(async () => {
+          try {
+            const result = await wv.executeJavaScript(`(()=>{try{return typeof window.__ytIsPlaying==='function'?window.__ytIsPlaying():false}catch(e){return false}})()`);
+            setPlaying(!!result);
+          } catch {
+          }
+        }, 3e3);
+      } else if (platform === "youtube") {
+        setTimeout(async () => {
+          try {
+            const result = await wv.executeJavaScript(`(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getPlayerState==='function')return mp.getPlayerState()===1;const v=document.querySelector('video');return v?!v.paused:false}catch(e){return false}})()`);
+            setPlaying(!!result);
+          } catch {
+          }
+        }, 3e3);
+      } else {
+        setTimeout(async () => {
+          try {
+            const result = await wv.executeJavaScript(`(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.isPaused==='function')return !window.__twitchPlayer.isPaused();const v=document.querySelector('video');return v?!v.paused:false}catch(e){return false}})()`);
+            setPlaying(!!result);
+          } catch {
+          }
+        }, 2e3);
       }
     };
     wv.addEventListener("dom-ready", onReady);
@@ -7517,8 +7720,9 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
   }, [embedUrl, platform]);
   reactExports.useEffect(() => {
     if (!ready) return;
-    const isTwitchLocal = embedUrl?.startsWith("http://localhost");
-    const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`;
+    const isTwitchLocal = embedUrl?.startsWith("http://localhost") && !embedUrl.includes("?yt=");
+    const isYtLocal = embedUrl?.includes("?yt=");
+    const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()` : isYtLocal ? `(()=>{try{return typeof window.__ytGetTime==='function'?window.__ytGetTime():-1}catch(e){return -1}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`;
     const iv = setInterval(async () => {
       if (isSeekingRef.current) return;
       try {
@@ -7532,14 +7736,19 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
   const seekTo = async (sec) => {
     const wv = webviewRef.current;
     if (!wv) return;
-    const isTwitchLocal = embedUrl?.startsWith("http://localhost");
+    const isTwitchLocal = embedUrl?.startsWith("http://localhost") && !embedUrl.includes("?yt=");
+    const isYtLocal = embedUrl?.includes("?yt=");
     const s = Math.round(sec);
-    const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.seek==='function'){window.__twitchPlayer.seek(${s});return;}}catch(e){}})()` : `(()=>{try{
-          const mp=document.getElementById('movie_player');
-          if(mp&&typeof mp.seekTo==='function'){mp.seekTo(${s},true);return;}
-          const v=document.querySelector('video');
-          if(v){v.currentTime=${s};return;}
-        }catch(e){}})()`;
+    const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.seek==='function'){window.__twitchPlayer.seek(${s});}}catch(e){}})()` : isYtLocal ? `(()=>{try{if(typeof window.__ytSeek==='function')window.__ytSeek(${s});}catch(e){}})()` : `(()=>{try{
+            const mp=document.getElementById('movie_player');
+            if(mp&&typeof mp.seekTo==='function'){mp.seekTo(${s},true);return;}
+            const v=document.querySelector('video');
+            if(v){
+              const wasPlaying=!v.paused;
+              v.currentTime=${s};
+              if(wasPlaying){setTimeout(()=>{if(v.paused)v.play().catch(()=>{})},200);}
+            }
+          }catch(e){}})()`;
     try {
       await wv.executeJavaScript(js);
     } catch {
@@ -7551,8 +7760,9 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
     setCurrentTime(sec);
     seekTo(sec);
     const started = Date.now();
-    const isTwitchLocal = embedUrl?.startsWith("http://localhost");
-    const checkJs = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`;
+    const isTwitchLocal = embedUrl?.startsWith("http://localhost") && !embedUrl.includes("?yt=");
+    const isYtLocal = embedUrl?.includes("?yt=");
+    const checkJs = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()` : isYtLocal ? `(()=>{try{return typeof window.__ytGetTime==='function'?window.__ytGetTime():-1}catch(e){return -1}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`;
     const poll = setInterval(async () => {
       try {
         const ct = await webviewRef.current?.executeJavaScript(checkJs);
@@ -7575,25 +7785,42 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
   const togglePlay = async () => {
     const wv = webviewRef.current;
     if (!wv) return;
-    const isTwitchLocal = embedUrl?.startsWith("http://localhost");
-    const willPause = playing;
-    const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer){${willPause}?window.__twitchPlayer.pause():window.__twitchPlayer.play();}return 'ok'}catch(e){return 'err'}})()` : `(()=>{try{
-          const mp=document.getElementById('movie_player');
-          if(mp){${willPause}?mp.pauseVideo():mp.playVideo();return 'ok';}
-          const v=document.querySelector('video');
-          if(v){${willPause}?v.pause():v.play();return 'ok';}
-          return 'noop'
-        }catch(e){return 'err'}})()`;
+    const isTwitchLocal = embedUrl?.startsWith("http://localhost") && !embedUrl.includes("?yt=");
+    const isYtLocal = embedUrl?.includes("?yt=");
+    let isActuallyPlaying = playing;
+    try {
+      const checkJs = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.isPaused==='function')return !window.__twitchPlayer.isPaused();return false}catch(e){return false}})()` : isYtLocal ? `(()=>{try{return typeof window.__ytIsPlaying==='function'?window.__ytIsPlaying():false}catch(e){return false}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getPlayerState==='function')return mp.getPlayerState()===1;const v=document.querySelector('video');return v?!v.paused&&!v.ended:false}catch(e){return false}})()`;
+      const result = await wv.executeJavaScript(checkJs);
+      if (typeof result === "boolean") isActuallyPlaying = result;
+    } catch {
+    }
+    const willPause = isActuallyPlaying;
+    const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer){${willPause}?window.__twitchPlayer.pause():window.__twitchPlayer.play();}return 'ok'}catch(e){return 'err'}})()` : isYtLocal ? `(()=>{try{${willPause}?(typeof window.__ytPause==='function'&&window.__ytPause()):(typeof window.__ytPlay==='function'&&window.__ytPlay());return 'ok'}catch(e){return 'err'}})()` : `(()=>{try{
+            const mp=document.getElementById('movie_player');
+            if(mp){${willPause}?(mp.pauseVideo&&mp.pauseVideo()):(mp.playVideo&&mp.playVideo());return 'ok';}
+            const v=document.querySelector('video');
+            if(v){${willPause}?v.pause():v.play().catch(()=>{});return 'ok';}
+            return 'noop';
+          }catch(e){return 'err'}})()`;
     try {
       await wv.executeJavaScript(js);
     } catch {
     }
-    setPlaying((p2) => !p2);
+    setPlaying(!willPause);
+    setTimeout(async () => {
+      try {
+        const verifyJs = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.isPaused==='function')return !window.__twitchPlayer.isPaused();return false}catch(e){return false}})()` : isYtLocal ? `(()=>{try{return typeof window.__ytIsPlaying==='function'?window.__ytIsPlaying():false}catch(e){return false}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getPlayerState==='function')return mp.getPlayerState()===1;const v=document.querySelector('video');return v?!v.paused&&!v.ended:false}catch(e){return false}})()`;
+        const actual = await wv.executeJavaScript(verifyJs);
+        if (typeof actual === "boolean") setPlaying(actual);
+      } catch {
+      }
+    }, 500);
   };
   const getTime = async () => {
     try {
-      const isTwitchLocal = embedUrl?.startsWith("http://localhost");
-      const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?v.currentTime:-1}catch(e){return -1}})()`;
+      const isTwitchLocal = embedUrl?.startsWith("http://localhost") && !embedUrl.includes("?yt=");
+      const isYtLocal = embedUrl?.includes("?yt=");
+      const js = isTwitchLocal ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()` : isYtLocal ? `(()=>{try{return typeof window.__ytGetTime==='function'?window.__ytGetTime():-1}catch(e){return -1}})()` : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`;
       const ct = await webviewRef.current?.executeJavaScript(js);
       return typeof ct === "number" && ct >= 0 ? ct : -1;
     } catch {
@@ -7683,7 +7910,12 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t: t2 
   const selectedDur = Math.max(0, endSec - startSec);
   const dlQuality = ftype === "audio" ? "mp3_best" : platform === "twitch" ? "source" : "1080";
   if (!embedUrl) return null;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "vp-panel", children: [
+  const panelStyle = {
+    ...panelSize.width ? { width: panelSize.width + "px" } : {},
+    ...panelSize.height ? { height: panelSize.height + "px" } : {}
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "vp-panel", ref: panelRef, style: panelStyle, children: [
+    ["nw", "n", "ne", "e", "se", "s", "sw", "w"].map((dir) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `vp-resize-handle vp-rh-${dir}`, onMouseDown: startResize(dir) }, dir)),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "vp-head", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "5 3 19 12 5 21 5 3" }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "vp-title", children: t2.vp_title }),
@@ -7899,7 +8131,7 @@ function TitleBar() {
     ] })
   ] });
 }
-function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
+function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, onToggleCollapse }) {
   const t2 = translations[lang];
   const NAV = [
     { id: "download", label: t2.nav_download, icon: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
@@ -7920,32 +8152,52 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle }) {
       /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" })
     ] }) }
   ];
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "sidebar", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: `sidebar${collapsed ? " sb-collapsed" : ""}`, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-logo", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(StarLogo, { size: 30, cls: "sb-star" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-wordmark", children: [
+      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-wordmark", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-you", children: "YOU" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-dl", children: "DOWNLOAD" })
-      ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "sb-toggle", onClick: onToggleCollapse, title: collapsed ? "Expand sidebar" : "Collapse sidebar", children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.2", children: collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "9 18 15 12 9 6" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "15 18 9 12 15 6" }) }) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-divider" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "sb-nav", children: NAV.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `sb-item ${view === item.id ? "sb-item-active" : ""}`, onClick: () => onChange(item.id), children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-indicator" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-icon", children: item.icon }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-label", children: item.label }),
-      item.id === "download" && activeCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-badge", children: activeCount })
-    ] }, item.id)) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "sb-nav", children: NAV.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        className: `sb-item ${view === item.id ? "sb-item-active" : ""}`,
+        onClick: () => onChange(item.id),
+        title: collapsed ? item.label : void 0,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-indicator" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-icon", children: item.icon }),
+          !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-label", children: item.label }),
+          item.id === "download" && activeCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-badge", children: activeCount })
+        ]
+      },
+      item.id
+    )) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-footer", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "lang-toggle", onClick: onLangToggle, children: [
+      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "lang-toggle", onClick: onLangToggle, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `lang-opt ${lang === "en" ? "lang-opt-on" : ""}`, children: "EN" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "lang-sep" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `lang-opt ${lang === "ru" ? "lang-opt-on" : ""}`, children: "RU" })
       ] }),
+      collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: "lang-toggle",
+          onClick: onLangToggle,
+          title: lang === "en" ? "Switch to RU" : "Switch to EN",
+          style: { justifyContent: "center", padding: "5px 0" },
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "lang-opt lang-opt-on", style: { flex: "unset", padding: "4px 6px" }, children: lang.toUpperCase() })
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sb-status-row", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-dot" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-ready", children: t2.status_ready })
+        !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-ready", children: t2.status_ready })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.0.5" })
+      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.1.1" })
     ] })
   ] });
 }
@@ -8168,31 +8420,103 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
     ] })
   ] });
 }
+function entryDate(entry) {
+  const e = entry;
+  for (const key of ["timestamp", "release_timestamp", "epoch", "modified_timestamp"]) {
+    if (typeof e[key] === "number" && e[key] > 0) return new Date(e[key] * 1e3);
+  }
+  for (const key of ["upload_date", "release_date", "modified_date"]) {
+    const v2 = e[key];
+    if (v2 && /^\d{8}$/.test(v2)) {
+      return /* @__PURE__ */ new Date(`${v2.slice(0, 4)}-${v2.slice(4, 6)}-${v2.slice(6, 8)}`);
+    }
+  }
+  for (const key of ["upload_date_str", "start_time", "created_at"]) {
+    const v2 = e[key];
+    if (v2 && v2.includes("-")) {
+      const d = new Date(v2);
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+  return null;
+}
+function fmtDateYMD(d) {
+  return d.toISOString().slice(0, 10);
+}
 function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti }) {
   const [tab, setTab] = reactExports.useState("vods");
   const [allEntries, setAllEntries] = reactExports.useState({ vods: [], clips: [] });
   const [loadingTab, setLoadingTab] = reactExports.useState(null);
+  const [fromCache, setFromCache] = reactExports.useState({ vods: false, clips: false });
+  const [fetchedAt, setFetchedAt] = reactExports.useState({ vods: null, clips: null });
+  const [pinned, setPinned] = reactExports.useState(false);
+  const [refreshingTab, setRefreshingTab] = reactExports.useState(null);
   const loadedRef = reactExports.useRef({});
   const genRef = reactExports.useRef(0);
   const [selected, setSelected] = reactExports.useState({});
   const [searchQuery, setSearchQuery] = reactExports.useState("");
-  const load = async (type) => {
-    if (loadedRef.current[type]) return;
+  const [dateMode, setDateMode] = reactExports.useState("range");
+  const [dateFrom, setDateFrom] = reactExports.useState("");
+  const [dateTo, setDateTo] = reactExports.useState("");
+  const [dateExact, setDateExact] = reactExports.useState("");
+  const [showDateFilter, setShowDateFilter] = reactExports.useState(false);
+  const load = async (type, forceRefresh = false) => {
+    if (loadedRef.current[type] && !forceRefresh) return;
     loadedRef.current[type] = true;
     const myGen = genRef.current;
-    setLoadingTab(type);
-    const r2 = await window.api?.fetchTwitchChannel(channelName, type);
+    if (forceRefresh) {
+      setRefreshingTab(type);
+    } else {
+      setLoadingTab(type);
+    }
+    const r2 = await window.api?.fetchTwitchChannel(channelName, type, forceRefresh);
     if (genRef.current !== myGen) return;
-    setAllEntries((p2) => ({ ...p2, [type]: r2?.success && r2.entries ? r2.entries : [] }));
+    if (r2?.success && r2.entries) {
+      setAllEntries((p2) => ({ ...p2, [type]: r2.entries }));
+      setFromCache((p2) => ({ ...p2, [type]: !!r2.fromCache }));
+      if (r2.fetchedAt) setFetchedAt((p2) => ({ ...p2, [type]: r2.fetchedAt }));
+      if (r2.fromCache && !forceRefresh) {
+        window.api?.fetchTwitchChannel(channelName, type, true).then((fresh) => {
+          if (genRef.current !== myGen) return;
+          if (fresh?.success && fresh.entries) {
+            setAllEntries((p2) => ({ ...p2, [type]: fresh.entries }));
+            setFromCache((p2) => ({ ...p2, [type]: false }));
+            if (fresh.fetchedAt) setFetchedAt((p2) => ({ ...p2, [type]: fresh.fetchedAt }));
+          }
+        }).catch(() => {
+        });
+      }
+    }
     setLoadingTab(null);
+    setRefreshingTab(null);
+  };
+  const togglePin = async () => {
+    const next = !pinned;
+    setPinned(next);
+    await window.api?.setTwitchChannelPin(channelName, next);
   };
   reactExports.useEffect(() => {
     genRef.current++;
     loadedRef.current = {};
     setAllEntries({ vods: [], clips: [] });
+    setFromCache({ vods: false, clips: false });
+    setFetchedAt({ vods: null, clips: null });
+    setPinned(false);
     setLoadingTab(null);
+    setRefreshingTab(null);
     setSearchQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setDateExact("");
+    setShowDateFilter(false);
     setTab("vods");
+    window.api?.getTwitchCacheMeta(channelName).then((meta) => {
+      const isPinned = !!(meta?.vods?.pinned || meta?.clips?.pinned);
+      setPinned(isPinned);
+      if (meta?.vods?.fetchedAt) setFetchedAt((p2) => ({ ...p2, vods: meta.vods.fetchedAt }));
+      if (meta?.clips?.fetchedAt) setFetchedAt((p2) => ({ ...p2, clips: meta.clips.fetchedAt }));
+    }).catch(() => {
+    });
     load("vods");
   }, [channelName]);
   const switchTab = (type) => {
@@ -8200,6 +8524,7 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
     load(type);
   };
   const loading = loadingTab !== null;
+  const refreshing = refreshingTab === tab;
   const toggleSelect = (entry, url) => {
     setSelected((p2) => {
       if (p2[entry.id]) {
@@ -8211,7 +8536,17 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
     });
   };
   const selectedList = Object.values(selected);
-  const entries = searchQuery.trim() ? allEntries[tab].filter((e) => e.title?.toLowerCase().includes(searchQuery.toLowerCase())) : allEntries[tab];
+  const afterSearch = searchQuery.trim() ? allEntries[tab].filter((e) => e.title?.toLowerCase().includes(searchQuery.toLowerCase())) : allEntries[tab];
+  const dateFilterActive = dateMode === "exact" && dateExact || dateMode === "range" && (dateFrom || dateTo);
+  const entries = dateFilterActive ? afterSearch.filter((e) => {
+    const d = entryDate(e);
+    if (!d) return false;
+    const ds = fmtDateYMD(d);
+    if (dateMode === "exact") return ds === dateExact;
+    if (dateFrom && ds < dateFrom) return false;
+    if (dateTo && ds > dateTo) return false;
+    return true;
+  }) : afterSearch;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-browser", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-browser-head", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-channel-name", children: [
@@ -8226,6 +8561,35 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
         ] }),
         "Twitch"
       ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          className: `twitch-pin-btn${pinned ? " twitch-pin-on" : ""}`,
+          onClick: togglePin,
+          title: pinned ? t2.twitch_pinned_hint : t2.twitch_pin_hint,
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: pinned ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: pinned ? t2.twitch_pinned : t2.twitch_pin })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          className: `twitch-refresh-btn${refreshing ? " twitch-refresh-spin" : ""}${fromCache[tab] ? " twitch-refresh-cached" : ""}`,
+          onClick: () => load(tab, true),
+          disabled: loading || refreshing,
+          title: fromCache[tab] && fetchedAt[tab] ? `Cached ${formatCacheAge(fetchedAt[tab])} — click to refresh` : "Refresh",
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "23 4 23 10 17 10" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "1 20 1 14 7 14" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" })
+            ] }),
+            fromCache[tab] && !refreshing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-cache-dot", title: "From cache" })
+          ]
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-tabs", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `twitch-tab ${tab === "vods" ? "twitch-tab-on" : ""}`, onClick: () => switchTab("vods"), children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
@@ -8266,6 +8630,46 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
         /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "6", y1: "6", x2: "18", y2: "18" })
       ] }) })
     ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-date-filter", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          className: `twitch-date-toggle${showDateFilter ? " twitch-date-toggle-on" : ""}${dateFilterActive ? " twitch-date-active" : ""}`,
+          onClick: () => setShowDateFilter((v2) => !v2),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "3", y: "4", width: "18", height: "18", rx: "2" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "16", y1: "2", x2: "16", y2: "6" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "2", x2: "8", y2: "6" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "10", x2: "21", y2: "10" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.twitch_date_filter_label }),
+            dateFilterActive && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-date-badge", children: entries.length }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className: `tr-arrow${showDateFilter ? " tr-arrow-open" : ""}`, width: "10", height: "10", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "6 9 12 15 18 9" }) })
+          ]
+        }
+      ),
+      showDateFilter && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-date-body", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-date-mode-row", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `twitch-date-mode-btn${dateMode === "range" ? " on" : ""}`, onClick: () => setDateMode("range"), children: t2.twitch_date_mode_range }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `twitch-date-mode-btn${dateMode === "exact" ? " on" : ""}`, onClick: () => setDateMode("exact"), children: t2.twitch_date_mode_exact })
+        ] }),
+        dateMode === "range" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-date-range-row", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "twitch-date-label", children: t2.twitch_date_from }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", className: "twitch-date-input", value: dateFrom, onChange: (e) => setDateFrom(e.target.value) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "twitch-date-label", children: t2.twitch_date_to }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", className: "twitch-date-input", value: dateTo, onChange: (e) => setDateTo(e.target.value) })
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-date-range-row", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "twitch-date-label", children: t2.twitch_date_exact }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", className: "twitch-date-input", value: dateExact, onChange: (e) => setDateExact(e.target.value) })
+        ] }),
+        !!dateFilterActive && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "twitch-date-clear", onClick: () => {
+          setDateFrom("");
+          setDateTo("");
+          setDateExact("");
+        }, children: t2.twitch_date_clear })
+      ] })
+    ] }),
     selectedList.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-selection-bar", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "twitch-sel-count", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
@@ -8300,7 +8704,10 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
               entry.thumbnail ? /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: entry.thumbnail, alt: "" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "twitch-entry-thumb-ph", children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "5 3 19 12 5 21 5 3" }) }) }),
               entry.duration && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-dur", children: formatDur(entry.duration) })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "twitch-entry-meta", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-title", children: entry.title }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-entry-meta", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-title", children: entry.title }),
+              entryDate(entry) && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-date", children: fmtDateYMD(entryDate(entry)) })
+            ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className: "twitch-entry-arrow", width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "9 18 15 12 9 6" }) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "twitch-entry-open", onClick: (e) => {
@@ -8318,7 +8725,7 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
 }
 const STATUS_COLOR = { pending: "#60A5FA", downloading: "#4ADE80", processing: "#FACC15", complete: "#4ADE80", error: "#EF4444", cancelled: "#475569" };
 const STATUS_LABEL = (t2) => ({ pending: t2.st_pending, downloading: t2.st_downloading, processing: t2.st_processing, complete: t2.st_complete, error: t2.st_error, cancelled: t2.st_cancelled });
-function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t2 }) {
+function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t2, lang }) {
   const c = STATUS_COLOR[item.status];
   const labels = STATUS_LABEL(t2);
   const showBar = item.status === "downloading" || item.status === "processing" || item.status === "complete";
@@ -8342,8 +8749,11 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-sdot", style: { background: c } }),
           labels[item.status]
         ] }),
-        item.speed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-speed", children: item.speed }),
-        item.eta && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-eta", children: [
+        item.speed === "ssl_retry" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-ssl-retry", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin", style: { width: 9, height: 9 } }),
+          lang === "ru" ? "Повтор (SSL)…" : "Retrying (SSL)…"
+        ] }) : item.speed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-speed", children: item.speed }),
+        item.speed !== "ssl_retry" && item.eta && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-eta", children: [
           t2.eta,
           " ",
           item.eta
@@ -8358,8 +8768,21 @@ function DownloadCard({ item, onCancel, onOpen, onCookieHint, onFfmpegHint, t: t
         item.status === "downloading" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "dl-glow", style: { left: `${item.progress}%`, background: c } })
       ] }),
       item.error && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dl-err-wrap", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-err", children: item.error }),
-        isCookieError(item.error) && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
+        isAgeGate(item.error) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-err", children: [
+          t2.lang === "ru" ? "Возрастное ограничение — " : "Age-restricted — ",
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
+            t2.err_cookie_hint
+          ] })
+        ] }) : isSslError(item.error) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "dl-err dl-err-ssl", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "9", x2: "12", y2: "13" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "17", x2: "12.01", y2: "17" })
+          ] }),
+          lang === "ru" ? "Ошибка SSL-соединения с Twitch. Попробуй снова — обычно помогает с 1–2 попытки." : "SSL connection error with Twitch. Try again — usually works after 1–2 retries."
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "dl-err", children: item.error }),
+        !isAgeGate(item.error) && !isSslError(item.error) && isCookieError(item.error) && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "dl-cookie-hint", onClick: onCookieHint, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
@@ -8460,7 +8883,7 @@ function ThemeCards({ current, onChange, t: t2 }) {
     ] })
   ] });
 }
-function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange, onManualCheck }) {
+function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange, onManualCheck, twitchLoggedIn, twitchExtractState, twitchExtractError, onTwitchExtract }) {
   const [local, setLocal] = reactExports.useState(settings);
   const [updateState, setUpdateState] = reactExports.useState("idle");
   const [checkState, setCheckState] = reactExports.useState("idle");
@@ -8522,6 +8945,7 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
     }
     setTimeout(() => setVkExtractState("idle"), 5e3);
   };
+  console.log("[SettingsView] render", { twitchLoggedIn, twitchExtractState });
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-view", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "section-title", children: t2.set_title }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
@@ -8590,6 +9014,29 @@ function SettingsView({ settings, onSave, onPickFolder, t: t2, theme, onThemeCha
         vkLoggedIn && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-extract-browser", children: "✓ signed in" })
       ] }) }),
       vkExtractState === "fail" && vkExtractError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-extract-error", children: vkExtractError })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_extract_twitch_cookies }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-hint", children: t2.set_extract_twitch_cookies_hint }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `set-extract-btn ${twitchExtractState === "ok" ? "set-extract-ok" : twitchExtractState === "fail" ? "set-extract-fail" : ""}`, onClick: onTwitchExtract, disabled: twitchExtractState === "busy", children: twitchExtractState === "busy" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }),
+        t2.set_extracting
+      ] }) : twitchExtractState === "ok" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
+        t2.set_extract_twitch_ok
+      ] }) : twitchExtractState === "fail" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
+        ] }),
+        t2.set_extract_twitch_fail
+      ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
+        t2.set_extract_twitch_cookies,
+        twitchLoggedIn && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "set-extract-browser", children: "✓ signed in" })
+      ] }) }),
+      twitchExtractState === "fail" && twitchExtractError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "set-extract-error", children: twitchExtractError })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "set-group", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "set-label", children: t2.set_auto_update }),
@@ -8750,6 +9197,152 @@ function SetupOverlay({ onSetup, loading, error, t: t2 }) {
     ] })
   ] }) });
 }
+function formatViewers(n2) {
+  if (n2 >= 1e3) return `${(n2 / 1e3).toFixed(1)}K`;
+  return String(n2);
+}
+function FollowedLivePanel({ onSelect, t: t2 }) {
+  const [streams, setStreams] = reactExports.useState([]);
+  const [me2, setMe] = reactExports.useState(null);
+  const [loading, setLoading] = reactExports.useState(false);
+  const [error, setError] = reactExports.useState(null);
+  const [lastFetch, setLastFetch] = reactExports.useState(0);
+  const [favs, setFavs] = reactExports.useState([]);
+  reactExports.useEffect(() => {
+    loadFavStreamers().then(setFavs);
+  }, []);
+  const toggleFav = async (login, e) => {
+    e.stopPropagation();
+    const next = favs.includes(login) ? favs.filter((l2) => l2 !== login) : [...favs, login];
+    setFavs(next);
+    await saveFavStreamers(next);
+  };
+  const fetch2 = async () => {
+    setLoading(true);
+    setError(null);
+    const r2 = await window.api.fetchTwitchFollowedLive();
+    setLoading(false);
+    if (r2.success) {
+      setStreams(r2.streams ?? []);
+      setMe(r2.me ?? null);
+      setLastFetch(Date.now());
+    } else {
+      setError(r2.error ?? "error");
+    }
+  };
+  reactExports.useEffect(() => {
+    fetch2();
+  }, []);
+  reactExports.useEffect(() => {
+    const iv = setInterval(() => fetch2(), 9e4);
+    return () => clearInterval(iv);
+  }, []);
+  const sorted = [...streams].sort((a, b) => {
+    const aFav = favs.includes(a.login) ? 1 : 0;
+    const bFav = favs.includes(b.login) ? 1 : 0;
+    if (bFav !== aFav) return bFav - aFav;
+    return b.viewers - a.viewers;
+  });
+  const offlineFavs = favs.filter((login) => !streams.find((s) => s.login === login));
+  if (error === "not_logged_in") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-not-logged", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "28", height: "28", viewBox: "0 0 24 24", fill: "currentColor", opacity: "0.3", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.flp_login_hint })
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-wrap", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-head", children: [
+      me2 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-me", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: me2.avatar, className: "flp-me-avatar", alt: "" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-me-name", children: me2.displayName })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "flp-title", children: [
+        t2.flp_title,
+        streams.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-count", children: streams.length })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "flp-refresh", onClick: fetch2, disabled: loading, title: t2.flp_refresh, children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "svg",
+        {
+          width: "12",
+          height: "12",
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: "2.2",
+          style: loading ? { animation: "spin 0.7s linear infinite" } : void 0,
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "23 4 23 10 17 10" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20.49 15a9 9 0 1 1-2.12-9.36L23 10" })
+          ]
+        }
+      ) })
+    ] }),
+    loading && streams.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flp-loading", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin" }) }),
+    !loading && streams.length === 0 && !error && favs.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flp-empty", children: t2.flp_empty }),
+    error && error !== "not_logged_in" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flp-error", children: error }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-list", children: [
+      sorted.map((s) => {
+        const isFav = favs.includes(s.login);
+        return /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `flp-item${isFav ? " flp-item-fav" : ""}`, onClick: () => onSelect(s.login), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-avatar-wrap", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: s.avatar, className: "flp-avatar", alt: "" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-live-dot" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-info", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-name-row", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-name", children: s.displayName }),
+              isFav && /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className: "flp-fav-badge", width: "10", height: "10", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" }) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-game", children: s.game }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-ttl", children: s.title })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-right", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-viewers", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "9", height: "9", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" }) }),
+              formatViewers(s.viewers)
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: `flp-star-btn${isFav ? " flp-star-on" : ""}`,
+                onClick: (e) => toggleFav(s.login, e),
+                title: isFav ? t2.flp_unfav ?? "Remove from favorites" : t2.flp_fav ?? "Add to favorites",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: isFav ? "currentColor" : "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" }) })
+              }
+            )
+          ] })
+        ] }, s.login);
+      }),
+      offlineFavs.map((login) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "flp-item flp-item-offline", onClick: () => onSelect(login), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-avatar-wrap", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flp-avatar-ph", children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "currentColor", opacity: "0.4", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-offline-dot" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-info", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-name-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-name flp-name-dim", children: login }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className: "flp-fav-badge", width: "10", height: "10", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "flp-offline-label", children: t2.flp_offline ?? "Offline" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flp-right", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "flp-star-btn flp-star-on",
+            onClick: (e) => toggleFav(login, e),
+            title: t2.flp_unfav ?? "Remove from favorites",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "currentColor", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polygon", { points: "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" }) })
+          }
+        ) })
+      ] }, `offline-${login}`))
+    ] }),
+    lastFetch > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flp-updated", children: [
+      t2.flp_updated,
+      " ",
+      new Date(lastFetch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    ] })
+  ] });
+}
 function normalizeTwitchChannel(val) {
   const v2 = val.trim();
   if (!v2) return "";
@@ -8764,15 +9357,34 @@ function normalizeTwitchChannel(val) {
   if (!v2.includes(".") && !v2.includes("/")) return v2.toLowerCase();
   return v2.toLowerCase();
 }
-function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName, persistedMarkers, onInputChange, onChannelChange, onMarkersChange, onStartDownload }) {
+function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName, persistedMarkers, streamSessions, hidden, onInputChange, onChannelChange, onMarkersChange, onSessionsChange, onStartDownload }) {
   const [embedUrl, setEmbedUrl] = reactExports.useState(null);
   const [playerReady, setPlayerReady] = reactExports.useState(false);
   const [streamPos, setStreamPos] = reactExports.useState(0);
   const [showAddForm, setShowAddForm] = reactExports.useState(false);
   const [newName, setNewName] = reactExports.useState("");
   const [newDesc, setNewDesc] = reactExports.useState("");
+  const [streamTab, setStreamTab] = reactExports.useState("live");
+  const [streamTitle, setStreamTitle] = reactExports.useState(null);
   const webviewRef = reactExports.useRef(null);
   const pollRef = reactExports.useRef(null);
+  const currentSessionId = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    if (persistedChannelName && !currentSessionId.current) {
+      const existing = streamSessions.find((s) => s.channelName === persistedChannelName);
+      currentSessionId.current = existing ? existing.id : `sess_${persistedChannelName}_${Date.now()}`;
+    }
+  }, []);
+  const saveCurrentSession = (markers, channel, sessions) => {
+    if (!channel || !currentSessionId.current) return sessions;
+    const id2 = currentSessionId.current;
+    const idx = sessions.findIndex((s) => s.id === id2);
+    if (idx >= 0) {
+      return sessions.map((s) => s.id === id2 ? { ...s, markers, streamTitle: streamTitle ?? s.streamTitle, lastActiveAt: Date.now() } : s);
+    }
+    const newSess = { id: id2, channelName: channel, streamTitle: streamTitle ?? void 0, startedAt: Date.now(), lastActiveAt: Date.now(), markers };
+    return [newSess, ...sessions];
+  };
   reactExports.useEffect(() => {
     if (persistedChannelName && !embedUrl) {
       window.api.getPreviewPort().then((port) => {
@@ -8782,6 +9394,44 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
       });
     }
   }, []);
+  reactExports.useEffect(() => {
+    if (!persistedChannelName) return;
+    const fetchTitle = async () => {
+      try {
+        const res = await fetch("https://gql.twitch.tv/gql", {
+          method: "POST",
+          headers: { "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko", "Content-Type": "application/json" },
+          body: JSON.stringify([{ query: `query{user(login:"${persistedChannelName}"){stream{title}}}` }])
+        });
+        const data = await res.json();
+        const title = data?.[0]?.data?.user?.stream?.title;
+        if (typeof title === "string" && title.trim()) setStreamTitle(title.trim());
+      } catch {
+      }
+    };
+    fetchTitle();
+    const iv = setInterval(fetchTitle, 12e4);
+    return () => clearInterval(iv);
+  }, [persistedChannelName]);
+  reactExports.useEffect(() => {
+    if (!streamTitle || !persistedChannelName || !currentSessionId.current) return;
+    onSessionsChange((prev) => {
+      const id2 = currentSessionId.current;
+      const idx = prev.findIndex((s) => s.id === id2);
+      if (idx >= 0) {
+        return prev.map((s) => s.id === id2 ? { ...s, streamTitle } : s);
+      }
+      const newSess = {
+        id: id2,
+        channelName: persistedChannelName,
+        streamTitle,
+        startedAt: Date.now(),
+        lastActiveAt: Date.now(),
+        markers: persistedMarkers
+      };
+      return [newSess, ...prev];
+    });
+  }, [streamTitle]);
   reactExports.useEffect(() => {
     const wv = webviewRef.current;
     if (!wv || !embedUrl) return;
@@ -8834,10 +9484,27 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
   const handleWatch = () => {
     const ch2 = normalizeTwitchChannel(persistedInput);
     if (!ch2) return;
+    if (persistedChannelName && persistedChannelName !== ch2) {
+      const updated = saveCurrentSession(persistedMarkers, persistedChannelName, streamSessions);
+      onSessionsChange(updated);
+    }
+    if (persistedChannelName === ch2 && currentSessionId.current) {
+      setPlayerReady(false);
+      setStreamPos(0);
+      window.api.getPreviewPort().then((port) => {
+        setEmbedUrl(`http://localhost:${port}/?channel=${ch2}`);
+      }).catch(() => {
+        setEmbedUrl(`https://player.twitch.tv/?channel=${ch2}&parent=localhost&autoplay=true`);
+      });
+      return;
+    }
+    const existingSess = streamSessions.find((s) => s.channelName === ch2);
+    currentSessionId.current = existingSess ? existingSess.id : `sess_${ch2}_${Date.now()}`;
     onChannelChange(ch2);
     setPlayerReady(false);
     setStreamPos(0);
-    onMarkersChange([]);
+    setStreamTitle(null);
+    onMarkersChange(existingSess ? existingSess.markers : []);
     window.api.getPreviewPort().then((port) => {
       setEmbedUrl(`http://localhost:${port}/?channel=${ch2}`);
     }).catch(() => {
@@ -8847,27 +9514,37 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
   const addMarker = () => {
     if (!newName.trim()) return;
     const m2 = { id: genId(), name: newName.trim(), description: newDesc.trim(), streamPos, createdAt: Date.now() };
-    onMarkersChange([...persistedMarkers, m2]);
+    const newMarkers = [...persistedMarkers, m2];
+    onMarkersChange(newMarkers);
+    onSessionsChange(saveCurrentSession(newMarkers, persistedChannelName, streamSessions));
     setNewName("");
     setNewDesc("");
     setShowAddForm(false);
   };
   const addPresetMarker = (label) => {
-    onMarkersChange([...persistedMarkers, { id: genId(), name: label, description: "", streamPos, createdAt: Date.now() }]);
+    const newMarkers = [...persistedMarkers, { id: genId(), name: label, description: "", streamPos, createdAt: Date.now() }];
+    onMarkersChange(newMarkers);
+    onSessionsChange(saveCurrentSession(newMarkers, persistedChannelName, streamSessions));
   };
-  const deleteMarker = (id2) => onMarkersChange(persistedMarkers.filter((m2) => m2.id !== id2));
-  const cutLast5Min = () => {
+  const deleteMarker = (id2) => {
+    const newMarkers = persistedMarkers.filter((m2) => m2.id !== id2);
+    onMarkersChange(newMarkers);
+    onSessionsChange(saveCurrentSession(newMarkers, persistedChannelName, streamSessions));
+  };
+  const cutLastN = (durSec) => {
     if (!persistedChannelName) return;
-    const endSec = streamPos;
-    const startSec = Math.max(0, endSec - 300);
     const url = `https://www.twitch.tv/${persistedChannelName}`;
     const id2 = genId();
-    const argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`];
+    const PADDING = 25;
+    const argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", `*-${durSec + PADDING}`];
+    const endSec = streamPos;
+    const startSec = Math.max(0, endSec - durSec);
+    const label = durSec < 60 ? `${durSec}s` : `${durSec / 60}m`;
     onStartDownload({
       id: id2,
       url,
-      title: `${persistedChannelName} — last 5 min`,
-      formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      title: `${persistedChannelName} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      formatLabel: `Source · last ${label}`,
       status: "pending",
       progress: 0,
       createdAt: Date.now()
@@ -8878,13 +9555,14 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
     const endSec = streamPos;
     const startSec = m2.streamPos;
     if (endSec <= startSec) return;
+    const durationSec = endSec - startSec;
     const url = `https://www.twitch.tv/${persistedChannelName}`;
     const id2 = genId();
-    const argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`];
+    const argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", `*-${durationSec + 25}`];
     onStartDownload({
       id: id2,
       url,
-      title: `${persistedChannelName} — ${m2.name}`,
+      title: `${persistedChannelName} — ${m2.name} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
       formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
       status: "pending",
       progress: 0,
@@ -8892,7 +9570,43 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
     }, argsWithSection);
   };
   const PRESETS = ["Highlight", "Fail", "Clip this", "Important"];
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-view", children: [
+  const deleteSession = (id2) => {
+    const updated = streamSessions.filter((s) => s.id !== id2);
+    onSessionsChange(updated);
+  };
+  const cutFromSessionMarker = (channelName, markerPos, markerName, durSec, direction) => {
+    const url = `https://www.twitch.tv/${channelName}`;
+    const id2 = genId();
+    const PADDING = 25;
+    let startSec, endSec, sectionArg;
+    if (direction === "back") {
+      startSec = Math.max(0, markerPos - durSec);
+      endSec = markerPos;
+      sectionArg = `*-${durSec + PADDING}`;
+    } else {
+      startSec = markerPos;
+      endSec = markerPos + durSec;
+      sectionArg = `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`;
+    }
+    const argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", sectionArg];
+    onStartDownload({
+      id: id2,
+      url,
+      title: `${channelName} — ${markerName} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      formatLabel: `Source [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
+      status: "pending",
+      progress: 0,
+      createdAt: Date.now()
+    }, argsWithSection);
+  };
+  const CUT_DURATIONS = [
+    { label: "30s", sec: 30 },
+    { label: "1m", sec: 60 },
+    { label: "2m", sec: 120 },
+    { label: "3m", sec: 180 },
+    { label: "5m", sec: 300 }
+  ];
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-view", style: hidden ? { display: "none" } : void 0, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-input-row", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-input-wrap", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", children: [
@@ -8917,27 +9631,124 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
         t2.stream_watch
       ] })
     ] }),
-    !persistedChannelName && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-empty", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "40", height: "40", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1", opacity: "0.35", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "2", fill: "currentColor" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14" })
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-tabs", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `stream-tab-btn ${streamTab === "live" ? "active" : ""}`, onClick: () => setStreamTab("live"), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "currentColor", children: /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "4" }) }),
+        t2.stream_tab_live
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: t2.stream_hint })
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `stream-tab-btn ${streamTab === "sessions" ? "active" : ""}`, onClick: () => setStreamTab("sessions"), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "9" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "12 7 12 12 15 15" })
+        ] }),
+        t2.stream_tab_sessions,
+        streamSessions.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-tab-count", children: streamSessions.length })
+      ] })
     ] }),
-    persistedChannelName && embedUrl && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-body", children: [
+    streamTab === "sessions" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "stream-sessions", children: streamSessions.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-sessions-empty", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1", opacity: "0.3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "9" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "12 7 12 12 15 15" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: t2.stream_sessions_empty })
+    ] }) : streamSessions.map((sess) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-session-card", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-header", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "#9146FF", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-header-info", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-channel-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-channel", children: sess.channelName }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-date", children: new Date(sess.lastActiveAt).toLocaleDateString() })
+          ] }),
+          sess.streamTitle && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-stream-title", children: sess.streamTitle })
+        ] }),
+        sess.markers.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "ssc-marker-count", children: [
+          sess.markers.length,
+          " ",
+          t2.stream_session_markers
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-no-markers", children: t2.stream_session_no_markers }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "ssc-delete", onClick: () => deleteSession(sess.id), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "3 6 5 6 21 6" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19 6l-1 14H6L5 6" })
+          ] }),
+          t2.stream_session_delete
+        ] })
+      ] }),
+      sess.markers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ssc-markers", children: sess.markers.map((m2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-marker", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "ssc-marker-dot" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-marker-body", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-marker-top", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-marker-name", children: m2.name }),
+            m2.description && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-marker-desc", children: m2.description }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-marker-time", children: secsToTimestamp(m2.streamPos) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ssc-cut-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-cut-label", children: "← back" }),
+            CUT_DURATIONS.map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "ssc-cut-btn", onClick: () => cutFromSessionMarker(sess.channelName, m2.streamPos, m2.name, d.sec, "back"), children: d.label }, `b-${d.sec}`)),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-cut-sep" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ssc-cut-label", children: "fwd →" }),
+            CUT_DURATIONS.map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "ssc-cut-btn ssc-cut-btn-fwd", onClick: () => cutFromSessionMarker(sess.channelName, m2.streamPos, m2.name, d.sec, "fwd"), children: d.label }, `f-${d.sec}`))
+          ] })
+        ] })
+      ] }, m2.id)) })
+    ] }, sess.id)) }),
+    streamTab === "live" && !persistedChannelName && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      FollowedLivePanel,
+      {
+        t: t2,
+        onSelect: (ch2) => {
+          onInputChange(ch2);
+          const existingSess = streamSessions.find((s) => s.channelName === ch2);
+          currentSessionId.current = existingSess ? existingSess.id : `sess_${ch2}_${Date.now()}`;
+          onChannelChange(ch2);
+          setPlayerReady(false);
+          setStreamPos(0);
+          setStreamTitle(null);
+          onMarkersChange(existingSess ? existingSess.markers : []);
+          window.api.getPreviewPort().then((port) => {
+            setEmbedUrl(`http://localhost:${port}/?channel=${ch2}`);
+          }).catch(() => {
+            setEmbedUrl(`https://player.twitch.tv/?channel=${ch2}&parent=localhost&autoplay=true`);
+          });
+        }
+      }
+    ),
+    streamTab === "live" && persistedChannelName && embedUrl && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-body", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-player-wrap", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-player-header", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "#9146FF", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-channel-label", children: persistedChannelName }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-live-badge", children: t2.stream_live_badge }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-timer", children: secsToTimestamp(streamPos) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "stream-cut5-btn", onClick: cutLast5Min, disabled: streamPos < 30, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 16l-4-4h2.5V4h3v8H16l-4 4z" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 18H4" })
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-player-header-leftright", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "stream-back-btn", onClick: () => {
+            onChannelChange(null);
+            setEmbedUrl(null);
+            setPlayerReady(false);
+            setStreamPos(0);
+          }, title: t2.stream_back ?? "Back", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "15 18 9 12 15 6" }) }),
+            t2.stream_back ?? "Back"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-player-header", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-player-main", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "#9146FF", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-channel-info", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-channel-label", children: persistedChannelName }),
+                streamTitle && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-channel-title", children: streamTitle })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-live-badge", children: t2.stream_live_badge }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "stream-timer", children: secsToTimestamp(streamPos) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-cut-group", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "stream-cut-label", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "11", height: "11", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 16l-4-4h2.5V4h3v8H16l-4 4z" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 18H4" })
+                  ] }),
+                  t2.stream_cut_label
+                ] }),
+                CUT_DURATIONS.map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "stream-cut-btn", onClick: () => cutLastN(d.sec), disabled: streamPos < d.sec, children: d.label }, d.sec))
+              ] })
             ] }),
-            t2.stream_cut_5min
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `stream-chat-btn`, onClick: () => window.api.openTwitchChat(persistedChannelName), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }) }),
+              t2.stream_chat
+            ] })
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-webview-wrap", children: [
@@ -9042,8 +9853,13 @@ function App() {
   const [streamInput, setStreamInput] = reactExports.useState("");
   const [streamChannelName, setStreamChannelName] = reactExports.useState(null);
   const [streamMarkers, setStreamMarkers] = reactExports.useState([]);
+  const [streamSessions, setStreamSessions] = reactExports.useState([]);
   const [autoCheckUpdates, setAutoCheckUpdates] = reactExports.useState(true);
   const [updateInfo, setUpdateInfo] = reactExports.useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = reactExports.useState(false);
+  const [twitchLoggedIn, setTwitchLoggedIn] = reactExports.useState(false);
+  const [twitchExtractState, setTwitchExtractState] = reactExports.useState("idle");
+  const [twitchExtractError, setTwitchExtractError] = reactExports.useState("");
   const urlRef = reactExports.useRef("");
   const t2 = translations[lang];
   const toggleLang = () => {
@@ -9065,6 +9881,7 @@ function App() {
       document.documentElement.setAttribute("data-theme", s.theme === "apathy" ? "apathy" : "");
       setInitFmt({ type: s.formatType, vq: s.videoQuality, aq: s.audioQuality });
       setAutoCheckUpdates(s.autoCheckUpdates !== false);
+      setSidebarCollapsed(!!s.sidebarCollapsed);
       const elSettings = await window.api.getSettings();
       setSettings({ ...elSettings, downloadPath: s.downloadPath || elSettings.downloadPath, concurrentDownloads: s.concurrentDownloads || elSettings.concurrentDownloads });
       const hist = await loadHistory();
@@ -9075,11 +9892,26 @@ function App() {
       } else {
         setShowSetup(true);
       }
+      console.log("[App] init: checkYtDlp exists=", exists);
+      window.api?.checkTwitchSession().then((r2) => {
+        console.log("[App] init: twitchSession loggedIn=", r2.loggedIn);
+        setTwitchLoggedIn(r2.loggedIn);
+      }).catch((e) => console.warn("[App] init: checkTwitchSession error", e));
+      const sessions = await loadStreamSessions();
+      setStreamSessions(sessions);
     })();
   }, []);
   reactExports.useEffect(() => {
     if (!window.api) return;
-    const u1 = window.api.onDownloadProgress((d) => setDownloads((p2) => p2.map((x2) => x2.id === d.id ? { ...x2, progress: d.progress, speed: d.speed, eta: d.eta, status: "downloading" } : x2)));
+    const u1 = window.api.onDownloadProgress((d) => setDownloads((p2) => p2.map((x2) => x2.id === d.id ? {
+      ...x2,
+      progress: d.progress,
+      speed: d.speed,
+      eta: d.eta,
+      status: "downloading",
+      // ssl_retry hint — show retrying badge instead of speed
+      ...d.hint === "ssl_retry" ? { speed: "ssl_retry", eta: "" } : {}
+    } : x2)));
     const u2 = window.api.onDownloadComplete((d) => setDownloads((p2) => {
       const updated = p2.map((x2) => x2.id === d.id ? { ...x2, status: "complete", progress: 100 } : x2);
       const item = updated.find((x2) => x2.id === d.id);
@@ -9116,6 +9948,27 @@ function App() {
     }, 4e3);
     return () => clearTimeout(timer);
   }, []);
+  const handleTwitchExtract = async () => {
+    console.log("[Twitch] extractTwitchCookies start");
+    setTwitchExtractState("busy");
+    setTwitchExtractError("");
+    try {
+      const r2 = await window.api?.extractTwitchCookies();
+      console.log("[Twitch] extractTwitchCookies result:", r2);
+      if (r2?.success) {
+        setTwitchExtractState("ok");
+        setTwitchLoggedIn(true);
+      } else {
+        setTwitchExtractState("fail");
+        setTwitchExtractError(r2?.error || "");
+      }
+    } catch (err) {
+      console.error("[Twitch] extractTwitchCookies error:", err);
+      setTwitchExtractState("fail");
+      setTwitchExtractError(String(err));
+    }
+    setTimeout(() => setTwitchExtractState("idle"), 5e3);
+  };
   const handleAutoCheckChange = (v2) => {
     setAutoCheckUpdates(v2);
     saveState({ autoCheckUpdates: v2 });
@@ -9269,11 +10122,26 @@ function App() {
     updateInfo?.hasUpdate && /* @__PURE__ */ jsxRuntimeExports.jsx(UpdateBanner, { info: updateInfo, t: t2, onDismiss: () => setUpdateInfo(null) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(TitleBar, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app-body", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Sidebar, { view, onChange: setView, activeCount, lang, onLangToggle: toggleLang }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Sidebar,
+        {
+          view,
+          onChange: setView,
+          activeCount,
+          lang,
+          onLangToggle: toggleLang,
+          collapsed: sidebarCollapsed,
+          onToggleCollapse: () => {
+            const next = !sidebarCollapsed;
+            setSidebarCollapsed(next);
+            saveState({ sidebarCollapsed: next });
+          }
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: `main${view === "stream" ? " main-stream" : ""}`, children: [
         view === "download" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dl-view", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(UrlInput, { onFetch: handleFetch, loading: fetching, t: t2, platform, onPlatformChange: setPlatform }),
-          fetchErr && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fetch-err", children: [
+          fetchErr && !isAgeGate(fetchErr) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fetch-err", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "10" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
@@ -9281,6 +10149,25 @@ function App() {
             ] }),
             fetchErr,
             isCookieError(fetchErr) && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "dl-cookie-hint", style: { marginLeft: "10px" }, onClick: handleCookieHint, children: t2.err_cookie_hint })
+          ] }),
+          fetchErr && isAgeGate(fetchErr) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "age-gate-card", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "28", height: "28", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "8", x2: "12", y2: "12" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "12", y1: "16", x2: "12.01", y2: "16" })
+            ] }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "age-gate-body", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-title", children: lang === "ru" ? "Видео с возрастным ограничением" : "Age-restricted video" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-desc", children: lang === "ru" ? "YouTube требует авторизацию для этого видео. Войдите в аккаунт прямо здесь — это займёт 10 секунд." : "YouTube requires sign-in for this video. Log in right here — it takes 10 seconds." }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "age-gate-btn", onClick: async () => {
+                setFetchErr("");
+                await handleCookieHint();
+              }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }) }),
+                lang === "ru" ? "Войти в YouTube" : "Sign in to YouTube"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-hint", children: lang === "ru" ? "После входа вернись и нажми Fetch снова" : "After signing in, come back and press Fetch again" })
+            ] })
           ] }),
           twitchChannel && /* @__PURE__ */ jsxRuntimeExports.jsx(TwitchChannelBrowser, { channelName: twitchChannel, t: t2, onSelect: handleTwitchSelect, onDownloadMulti: handleTwitchMulti }),
           (videoInfo || fetching) && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -9330,31 +10217,40 @@ function App() {
                 t2.lbl_active
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, onFfmpegHint: handleFfmpegHint, t: t2 }, d.id)) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, onFfmpegHint: handleFfmpegHint, t: t2, lang }, d.id)) })
           ] })
         ] }),
         view === "history" && /* @__PURE__ */ jsxRuntimeExports.jsx(HistoryView, { downloads, t: t2, onClear: async () => {
           await clearHistory();
           setDownloads((p2) => p2.filter((d) => d.status === "downloading" || d.status === "pending"));
         } }),
-        view === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsView, { settings, onSave: handleSaveSettings, onPickFolder: handlePickFolder, t: t2, theme, onThemeChange: handleThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange: handleAutoCheckChange, onManualCheck: handleManualCheck }),
-        view === "stream" && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        view === "settings" && (console.log("[App] rendering SettingsView", { twitchLoggedIn, twitchExtractState, twitchExtractError }), true) && /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsView, { settings, onSave: handleSaveSettings, onPickFolder: handlePickFolder, t: t2, theme, onThemeChange: handleThemeChange, highlightCookies, autoCheckUpdates, onAutoCheckChange: handleAutoCheckChange, onManualCheck: handleManualCheck, twitchLoggedIn, twitchExtractState, twitchExtractError, onTwitchExtract: handleTwitchExtract }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: view === "stream" ? "contents" : "none" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           StreamView,
           {
+            hidden: view !== "stream",
             t: t2,
             downloadPath: settings.downloadPath,
             persistedInput: streamInput,
             persistedChannelName: streamChannelName,
             persistedMarkers: streamMarkers,
+            streamSessions,
             onInputChange: setStreamInput,
             onChannelChange: setStreamChannelName,
             onMarkersChange: setStreamMarkers,
+            onSessionsChange: (v2) => {
+              setStreamSessions((prev) => {
+                const next = typeof v2 === "function" ? v2(prev) : v2;
+                saveStreamSessions(next);
+                return next;
+              });
+            },
             onStartDownload: (item, formatArgs) => {
               setDownloads((p2) => [item, ...p2]);
               window.api.startDownload({ id: item.id, url: item.url, formatArgs, downloadPath: settings.downloadPath });
             }
           }
-        )
+        ) })
       ] })
     ] })
   ] });

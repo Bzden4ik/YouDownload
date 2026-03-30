@@ -2541,7 +2541,46 @@ body::after {
   animation: fadeUp 0.3s ease both;
   display: flex;
   flex-direction: column;
+  position: relative;
+  min-width: 340px;
+  min-height: 300px;
 }
+
+/* resize handles — corners */
+.vp-resize-handle {
+  position: absolute;
+  z-index: 10;
+  width: 18px;
+  height: 18px;
+}
+.vp-resize-handle::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: rgba(74,222,128,0.45);
+  border-style: solid;
+  border-width: 0;
+}
+[data-theme="apathy"] .vp-resize-handle::after { border-color: rgba(255,59,124,0.45); }
+
+.vp-rh-se { bottom: 0; right: 0; cursor: se-resize; }
+.vp-rh-se::after { bottom: 3px; right: 3px; border-bottom-width: 2px; border-right-width: 2px; }
+
+.vp-rh-sw { bottom: 0; left: 0; cursor: sw-resize; }
+.vp-rh-sw::after { bottom: 3px; left: 3px; border-bottom-width: 2px; border-left-width: 2px; }
+
+.vp-rh-ne { top: 0; right: 0; cursor: ne-resize; }
+.vp-rh-ne::after { top: 3px; right: 3px; border-top-width: 2px; border-right-width: 2px; }
+
+.vp-rh-nw { top: 0; left: 0; cursor: nw-resize; }
+.vp-rh-nw::after { top: 3px; left: 3px; border-top-width: 2px; border-left-width: 2px; }
+
+/* right/bottom/left/top edge handles */
+.vp-rh-e { top: 50%; right: 0; transform: translateY(-50%); cursor: e-resize; width: 8px; height: 40px; }
+.vp-rh-w { top: 50%; left: 0; transform: translateY(-50%); cursor: w-resize; width: 8px; height: 40px; }
+.vp-rh-s { bottom: 0; left: 50%; transform: translateX(-50%); cursor: s-resize; width: 40px; height: 8px; }
+.vp-rh-n { top: 0; left: 50%; transform: translateX(-50%); cursor: n-resize; width: 40px; height: 8px; }
 
 [data-theme="apathy"] .vp-panel { border-color: rgba(255,59,124,0.22); }
 
@@ -2595,9 +2634,10 @@ body::after {
 .vp-player-wrap {
   position: relative;
   width: 100%;
-  height: 360px;
+  flex: 1;
+  min-height: 120px;
   background: #000;
-  flex-shrink: 0;
+  flex-shrink: 1;
   overflow: hidden;
 }
 
@@ -4207,3 +4247,217 @@ body::after {
 [data-theme="apathy"] .flp-count { background: var(--ap-pink); }
 [data-theme="apathy"] .flp-game { color: var(--ap-pink); }
 [data-theme="apathy"] .flp-item:hover { background: rgba(255,59,124,0.05); }
+
+
+/* ═══════════════════════ TWITCH DATE FILTER ═══════════════════════ */
+
+.twitch-date-filter {
+  padding: 4px 10px 2px;
+}
+
+.twitch-date-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border1, rgba(255,255,255,0.08));
+  color: var(--t2, rgba(255,255,255,0.5));
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.twitch-date-toggle:hover {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.15);
+  color: var(--t1, rgba(255,255,255,0.85));
+}
+.twitch-date-toggle-on {
+  border-color: rgba(145,70,255,0.4);
+  color: rgba(145,70,255,0.9);
+}
+.twitch-date-active {
+  border-color: rgba(145,70,255,0.6) !important;
+  color: #9146FF !important;
+  background: rgba(145,70,255,0.06);
+}
+
+/* badge showing filtered count */
+.twitch-date-badge {
+  background: #9146FF;
+  color: #fff;
+  border-radius: 9px;
+  padding: 1px 6px;
+  font-size: 10px;
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.twitch-date-body {
+  padding: 8px 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.twitch-date-mode-row {
+  display: flex;
+  gap: 6px;
+}
+
+.twitch-date-mode-btn {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border1, rgba(255,255,255,0.08));
+  background: transparent;
+  color: var(--t2, rgba(255,255,255,0.5));
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.twitch-date-mode-btn:hover {
+  background: rgba(255,255,255,0.04);
+  color: var(--t1, rgba(255,255,255,0.85));
+}
+.twitch-date-mode-btn.on {
+  background: rgba(145,70,255,0.18);
+  color: #9146FF;
+  border-color: rgba(145,70,255,0.5);
+}
+
+.twitch-date-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.twitch-date-label {
+  font-size: 11px;
+  color: var(--t2, rgba(255,255,255,0.45));
+  white-space: nowrap;
+}
+
+.twitch-date-input {
+  flex: 1;
+  min-width: 120px;
+  background: var(--bg3, rgba(255,255,255,0.05));
+  border: 1px solid var(--border1, rgba(255,255,255,0.1));
+  color: var(--t1, rgba(255,255,255,0.85));
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.twitch-date-input:focus {
+  border-color: rgba(145,70,255,0.5);
+}
+/* Chrome date picker dark mode fix */
+.twitch-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
+}
+
+.twitch-date-clear {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid rgba(239,68,68,0.4);
+  color: rgba(239,68,68,0.8);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.twitch-date-clear:hover {
+  background: rgba(239,68,68,0.1);
+  border-color: rgba(239,68,68,0.6);
+  color: #ef4444;
+}
+
+/* date badge on each entry */
+.twitch-entry-date {
+  display: block;
+  font-size: 10px;
+  color: var(--t3, rgba(255,255,255,0.3));
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+/* apathy theme tweaks */
+[data-theme="apathy"] .twitch-date-toggle-on {
+  border-color: rgba(77,124,255,0.4);
+  color: rgba(77,124,255,0.9);
+}
+[data-theme="apathy"] .twitch-date-active {
+  border-color: rgba(77,124,255,0.6) !important;
+  color: #4D7CFF !important;
+  background: rgba(77,124,255,0.06);
+}
+[data-theme="apathy"] .twitch-date-badge {
+  background: #4D7CFF;
+}
+[data-theme="apathy"] .twitch-date-mode-btn.on {
+  background: rgba(77,124,255,0.15);
+  color: #4D7CFF;
+  border-color: rgba(77,124,255,0.45);
+}
+[data-theme="apathy"] .twitch-date-input:focus {
+  border-color: rgba(77,124,255,0.5);
+}
+
+/* ── Twitch refresh button ───────────────────────────────────────────────── */
+.twitch-refresh-btn {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  position: relative;
+  padding: 4px 7px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: var(--t2); cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.twitch-refresh-btn:hover:not(:disabled) {
+  color: var(--t0); background: var(--bg2); border-color: var(--bd);
+}
+.twitch-refresh-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* orange dot = served from cache */
+.twitch-refresh-btn.twitch-refresh-cached {
+  color: rgba(250,180,60,0.7);
+}
+.twitch-refresh-btn.twitch-refresh-cached:hover:not(:disabled) {
+  color: rgba(250,180,60,1);
+}
+.twitch-cache-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(250,180,60,0.85);
+  position: absolute; top: 3px; right: 3px;
+}
+
+/* spinning icon during background refresh */
+@keyframes twitch-spin { to { transform: rotate(360deg); } }
+.twitch-refresh-spin svg {
+  animation: twitch-spin 0.7s linear infinite;
+}
+
+/* ── Twitch pin button ─────────────────────────────────────────────────────── */
+.twitch-pin-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: var(--t2); cursor: pointer; font-size: 11px;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.twitch-pin-btn:hover {
+  color: var(--t0); background: var(--bg2); border-color: var(--bd);
+}
+.twitch-pin-btn.twitch-pin-on {
+  color: #a78bfa; border-color: rgba(167,139,250,0.3);
+  background: rgba(167,139,250,0.08);
+}
+.twitch-pin-btn.twitch-pin-on:hover {
+  background: rgba(167,139,250,0.15); border-color: rgba(167,139,250,0.5);
+}

@@ -13,6 +13,8 @@ export interface PersistedState {
   concurrentDownloads: number
   autoCheckUpdates: boolean
   sidebarCollapsed?: boolean
+  playerPanelWidth?: number
+  playerPanelHeight?: number
 }
 
 export interface PersistedDownload {

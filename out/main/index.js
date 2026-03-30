@@ -49,7 +49,8 @@ const store = new Store({
       concurrentDownloads: 3,
       cookiesFromBrowser: "none"
     },
-    history: []
+    history: [],
+    twitchCache: {}
   }
 });
 function findFfmpeg() {
@@ -160,8 +161,67 @@ let previewServerPort = 0;
 function startPreviewServer() {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost`);
+    const ytVideoId = url.searchParams.get("yt") ?? "";
     const videoId = url.searchParams.get("id") ?? "";
     const channelName = url.searchParams.get("channel") ?? "";
+    if (ytVideoId) {
+      const html2 = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
+  #yt-player { width: 100vw; height: 100vh; }
+</style>
+</head><body>
+<div id="yt-player"></div>
+<script>
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+
+  var player;
+  window.onYouTubeIframeAPIReady = function() {
+    player = new YT.Player('yt-player', {
+      videoId: '${ytVideoId}',
+      width: '100%',
+      height: '100%',
+      playerVars: {
+        autoplay: 1,
+        rel: 0,
+        modestbranding: 1,
+        iv_load_policy: 3,
+        origin: 'http://localhost'
+      },
+      events: {
+        onReady: function(e) { e.target.playVideo(); }
+      }
+    });
+    window.__ytPlayer = player;
+  };
+
+  // API helpers for webview executeJavaScript
+  window.__ytGetTime = function() {
+    try { return Math.floor(player.getCurrentTime()); } catch(e) { return -1; }
+  };
+  window.__ytSeek = function(s) {
+    try { player.seekTo(s, true); } catch(e) {}
+  };
+  window.__ytPlay = function() {
+    try { player.playVideo(); } catch(e) {}
+  };
+  window.__ytPause = function() {
+    try { player.pauseVideo(); } catch(e) {}
+  };
+  window.__ytIsPlaying = function() {
+    try { return player.getPlayerState() === 1; } catch(e) { return false; }
+  };
+<\/script>
+</body></html>`;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(html2);
+      return;
+    }
     const playerConfig = channelName ? `channel: "${channelName}"` : `video: "${videoId}"`;
     const streamTimeScript = channelName ? `
   (function() {
@@ -662,22 +722,191 @@ electron.ipcMain.handle("fetch-video-info", async (_e, rawUrl) => {
     return { success: false, error: cleanYtDlpError(errStr) };
   }
 });
-electron.ipcMain.handle("fetch-twitch-channel", async (_e, channelName, type) => {
-  const url = type === "vods" ? `https://www.twitch.tv/${channelName}/videos?filter=archives&sort=time` : `https://www.twitch.tv/${channelName}/clips?filter=clips&range=all`;
-  try {
-    const result = child_process.spawnSync(
+const TWITCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
+const hotCache = /* @__PURE__ */ new Map();
+function getCachedChannel(key) {
+  const all = store.get("twitchCache");
+  const hit = all[key];
+  if (!hit) return null;
+  if (!hit.pinned && Date.now() - hit.fetchedAt > TWITCH_CACHE_TTL_MS) {
+    const updated = { ...all };
+    delete updated[key];
+    store.set("twitchCache", updated);
+    hotCache.delete(key);
+    return null;
+  }
+  const hot = hotCache.get(key);
+  return {
+    entries: hot?.entries ?? hit.entries,
+    fetchedAt: hit.fetchedAt,
+    pinned: hit.pinned
+  };
+}
+function setCachedChannel(key, entries, pinned) {
+  const fetchedAt = Date.now();
+  hotCache.set(key, { entries, fetchedAt });
+  const all = store.get("twitchCache");
+  const existing = all[key];
+  store.set("twitchCache", {
+    ...all,
+    [key]: { entries, fetchedAt, pinned: pinned ?? existing?.pinned ?? false }
+  });
+}
+function pinCachedChannel(key, pinned) {
+  const all = store.get("twitchCache");
+  if (!all[key]) return;
+  store.set("twitchCache", { ...all, [key]: { ...all[key], pinned } });
+}
+electron.ipcMain.handle("get-twitch-cache-meta", (_e, channelName) => {
+  const all = store.get("twitchCache");
+  const vods = all[`${channelName}:vods`];
+  const clips = all[`${channelName}:clips`];
+  return {
+    vods: vods ? { fetchedAt: vods.fetchedAt, pinned: vods.pinned } : null,
+    clips: clips ? { fetchedAt: clips.fetchedAt, pinned: clips.pinned } : null
+  };
+});
+electron.ipcMain.handle("set-twitch-channel-pin", (_e, channelName, pinned) => {
+  pinCachedChannel(`${channelName}:vods`, pinned);
+  pinCachedChannel(`${channelName}:clips`, pinned);
+  return { success: true };
+});
+async function fetchGqlDates(channelName, maxEntries) {
+  const CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+  const dateMap = {};
+  let cursor = null;
+  let fetched = 0;
+  const maxPages = Math.ceil(Math.min(maxEntries, 500) / 100);
+  const gqlRequest = (body) => new Promise((resolve, reject) => {
+    const req = electron.net.request({ url: "https://gql.twitch.tv/gql", method: "POST" });
+    req.setHeader("Content-Type", "application/json");
+    req.setHeader("Client-ID", CLIENT_ID);
+    let data = "";
+    req.on("response", (res) => {
+      res.on("data", (c) => {
+        data += c.toString();
+      });
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+  for (let page = 0; page < maxPages; page++) {
+    const paginationArg = cursor ? `, after: "${cursor}"` : "";
+    const gqlResult = await gqlRequest(JSON.stringify([{
+      query: `query {
+        user(login: "${channelName}") {
+          videos(first: 100, type: ARCHIVE, sort: TIME${paginationArg}) {
+            edges { node { id createdAt } cursor }
+            pageInfo { hasNextPage }
+          }
+        }
+      }`
+    }]));
+    const edges = gqlResult?.[0]?.data?.user?.videos?.edges ?? [];
+    for (const edge of edges) {
+      const node = edge?.node;
+      if (node?.id && node?.createdAt) {
+        const ts = Math.floor(new Date(node.createdAt).getTime() / 1e3);
+        dateMap[`v${node.id}`] = ts;
+        dateMap[node.id] = ts;
+      }
+    }
+    fetched += edges.length;
+    const hasNextPage = gqlResult?.[0]?.data?.user?.videos?.pageInfo?.hasNextPage;
+    if (!hasNextPage || edges.length === 0) break;
+    cursor = edges[edges.length - 1]?.cursor ?? null;
+    if (!cursor) break;
+  }
+  return dateMap;
+}
+function fetchYtDlpEntries(url) {
+  return new Promise((resolve, reject) => {
+    const proc = child_process.spawn(
       getYtDlpPath(),
       [url, "--flat-playlist", "--dump-json", "--yes-playlist", "--no-warnings"],
-      { encoding: "utf8", timeout: 3e4 }
+      { encoding: "utf8" }
     );
-    const entries = (result.stdout || "").trim().split("\n").filter(Boolean).map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error("yt-dlp timeout after 30s"));
+    }, 3e4);
+    proc.stdout.on("data", (d) => {
+      stdout += d.toString();
+    });
+    proc.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0 && !stdout.trim()) {
+        reject(new Error(stderr.slice(0, 300) || `yt-dlp exited with code ${code}`));
+        return;
       }
-    }).filter(Boolean);
-    return { success: true, entries };
+      const entries = stdout.trim().split("\n").filter(Boolean).map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+      resolve(entries);
+    });
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+electron.ipcMain.handle("fetch-twitch-channel", async (_e, channelName, type, refresh = false) => {
+  const cacheKey = `${channelName}:${type}`;
+  if (!refresh) {
+    const cached = getCachedChannel(cacheKey);
+    if (cached) {
+      console.log(`[twitch-cache] HIT ${cacheKey} (${cached.entries.length} entries, age ${Math.round((Date.now() - cached.fetchedAt) / 1e3)}s, pinned=${cached.pinned})`);
+      return { success: true, entries: cached.entries, fromCache: true, pinned: cached.pinned, fetchedAt: cached.fetchedAt };
+    }
+  }
+  const url = type === "vods" ? `https://www.twitch.tv/${channelName}/videos?filter=archives&sort=time` : `https://www.twitch.tv/${channelName}/clips?filter=clips&range=all`;
+  try {
+    let entries;
+    if (type === "vods") {
+      const [ytEntries, dateMapPage1] = await Promise.all([
+        fetchYtDlpEntries(url),
+        fetchGqlDates(channelName, 100).catch(() => ({}))
+      ]);
+      entries = ytEntries;
+      let dateMap = dateMapPage1;
+      if (entries.length > Object.keys(dateMapPage1).length / 2) {
+        try {
+          dateMap = await fetchGqlDates(channelName, entries.length);
+        } catch {
+        }
+      }
+      for (const e of entries) {
+        const ts = dateMap[e.id] ?? dateMap[(e.id ?? "").replace(/^v/, "")];
+        if (ts) {
+          e.timestamp = ts;
+          const d = new Date(ts * 1e3);
+          e.upload_date = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+        }
+      }
+      console.log(`[twitch-fetch] VODs: ${entries.length} entries, dateMap: ${Object.keys(dateMap).length} dates`);
+    } else {
+      entries = await fetchYtDlpEntries(url);
+    }
+    const existingMeta = store.get("twitchCache")[cacheKey];
+    setCachedChannel(cacheKey, entries, existingMeta?.pinned);
+    return { success: true, entries, fromCache: false, pinned: existingMeta?.pinned ?? false, fetchedAt: Date.now() };
   } catch (e) {
     return { success: false, error: String(e), entries: [] };
   }
@@ -1159,6 +1388,46 @@ electron.app.commandLine.appendSwitch("renderer-process-limit", "100");
 electron.app.commandLine.appendSwitch("disable-renderer-backgrounding");
 electron.app.whenReady().then(async () => {
   electron.session.fromPartition("persist:preview").setPermissionRequestHandler((_wc, permission, callback) => {
+    const allowed = ["media", "autoplay", "fullscreen", "mediaKeySystem"];
+    callback(allowed.includes(permission));
+  });
+  const ytPreviewSession = electron.session.fromPartition("persist:yt-preview");
+  const YT_AD_PATTERNS = [
+    "*://*.doubleclick.net/*",
+    "*://doubleclick.net/*",
+    "*://*.googlesyndication.com/*",
+    "*://*.googleadservices.com/*",
+    "*://*.google-analytics.com/*",
+    "*://www.googletagmanager.com/*",
+    "*://*.googletagservices.com/*",
+    "*://*.adsystem.com/*",
+    "*://securepubads.g.doubleclick.net/*",
+    "*://static.doubleclick.net/*",
+    "*://ad.doubleclick.net/*",
+    "*://www.youtube.com/pagead/*",
+    "*://www.youtube.com/api/stats/ads*",
+    "*://www.youtube.com/ptracking*",
+    "*://www.youtube.com/adview*",
+    "*://www.youtube.com/ad_data_204*",
+    "*://www.youtube.com/youtubei/v1/log_event*",
+    // Рекламные видеопотоки через googlevideo
+    "*://*.googlevideo.com/videoplayback?*ctier=L*",
+    "*://*.googlevideo.com/videoplayback?*oad=1*",
+    // Дополнительные рекламные эндпоинты YouTube
+    "*://www.youtube.com/youtubei/v1/next?*adunit*",
+    "*://www.youtube.com/get_video_info?*adformat*"
+  ];
+  ytPreviewSession.webRequest.onBeforeRequest(
+    { urls: YT_AD_PATTERNS },
+    (_details, callback) => callback({ cancel: true })
+  );
+  ytPreviewSession.webRequest.onHeadersReceived({ urls: ["*://www.youtube.com/*"] }, (details, callback) => {
+    const headers = details.responseHeaders ?? {};
+    delete headers["content-security-policy"];
+    delete headers["Content-Security-Policy"];
+    callback({ responseHeaders: headers });
+  });
+  ytPreviewSession.setPermissionRequestHandler((_wc, permission, callback) => {
     const allowed = ["media", "autoplay", "fullscreen", "mediaKeySystem"];
     callback(allowed.includes(permission));
   });

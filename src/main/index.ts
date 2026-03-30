@@ -39,10 +39,17 @@ interface HistoryItem {
   createdAt: number
 }
 
+interface TwitchPersistedEntry {
+  entries: any[]
+  fetchedAt: number
+  pinned: boolean // true = no TTL (keep forever)
+}
+
 interface StoreSchema {
   settings: AppSettings
   appState: AppState
   history: HistoryItem[]
+  twitchCache: Record<string, TwitchPersistedEntry>
 }
 
 const store = new Store<StoreSchema>({
@@ -65,7 +72,8 @@ const store = new Store<StoreSchema>({
       concurrentDownloads: 3,
       cookiesFromBrowser: 'none'
     },
-    history: []
+    history: [],
+    twitchCache: {}
   }
 })
 
@@ -173,10 +181,71 @@ let previewServerPort = 0
 
 function startPreviewServer(): void {
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
-    // Parse ?id=VIDEO_ID or ?channel=CHANNEL_NAME from URL
+    // Parse ?id=VIDEO_ID or ?channel=CHANNEL_NAME or ?yt=VIDEO_ID from URL
     const url = new URL(req.url ?? '/', `http://localhost`)
+    const ytVideoId = url.searchParams.get('yt') ?? ''
     const videoId = url.searchParams.get('id') ?? ''
     const channelName = url.searchParams.get('channel') ?? ''
+
+    // ── YouTube IFrame API player ─────────────────────────────────────────────
+    if (ytVideoId) {
+      const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
+  #yt-player { width: 100vw; height: 100vh; }
+</style>
+</head><body>
+<div id="yt-player"></div>
+<script>
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+
+  var player;
+  window.onYouTubeIframeAPIReady = function() {
+    player = new YT.Player('yt-player', {
+      videoId: '${ytVideoId}',
+      width: '100%',
+      height: '100%',
+      playerVars: {
+        autoplay: 1,
+        rel: 0,
+        modestbranding: 1,
+        iv_load_policy: 3,
+        origin: 'http://localhost'
+      },
+      events: {
+        onReady: function(e) { e.target.playVideo(); }
+      }
+    });
+    window.__ytPlayer = player;
+  };
+
+  // API helpers for webview executeJavaScript
+  window.__ytGetTime = function() {
+    try { return Math.floor(player.getCurrentTime()); } catch(e) { return -1; }
+  };
+  window.__ytSeek = function(s) {
+    try { player.seekTo(s, true); } catch(e) {}
+  };
+  window.__ytPlay = function() {
+    try { player.playVideo(); } catch(e) {}
+  };
+  window.__ytPause = function() {
+    try { player.pauseVideo(); } catch(e) {}
+  };
+  window.__ytIsPlaying = function() {
+    try { return player.getPlayerState() === 1; } catch(e) { return false; }
+  };
+</script>
+</body></html>`
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(html)
+      return
+    }
     const playerConfig = channelName ? `channel: "${channelName}"` : `video: "${videoId}"`
 
     // For live channels: fetch real stream start time via Twitch GQL so the
@@ -753,21 +822,220 @@ ipcMain.handle('fetch-video-info', async (_e, rawUrl: string) => {
   }
 })
 
+// ── Twitch channel cache (persistent via electron-store) ─────────────────────
+// TTL: pinned channels = forever, others = 7 days
+// In-memory hot cache for current session (instant repeated lookups)
+const TWITCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+const hotCache = new Map<string, { entries: any[]; fetchedAt: number }>()
+
+/** Returns persistent cache entry if still valid (respects TTL + pinned flag).
+ *  Also prunes expired non-pinned entries from disk. */
+function getCachedChannel(key: string): { entries: any[]; fetchedAt: number; pinned: boolean } | null {
+  // Always read pinned/fetchedAt from store (source of truth),
+  // but use hot cache for the heavy entries array if available.
+  const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
+  const hit = all[key]
+  if (!hit) return null
+
+  // Pinned = keep forever (no TTL check)
+  if (!hit.pinned && Date.now() - hit.fetchedAt > TWITCH_CACHE_TTL_MS) {
+    const updated = { ...all }
+    delete updated[key]
+    store.set('twitchCache', updated)
+    hotCache.delete(key)
+    return null
+  }
+
+  // Use hot cache entries if available (avoids re-reading large arrays from disk)
+  const hot = hotCache.get(key)
+  return {
+    entries: hot?.entries ?? hit.entries,
+    fetchedAt: hit.fetchedAt,
+    pinned: hit.pinned,
+  }
+}
+
+/** Save entries to both hot cache and persistent store */
+function setCachedChannel(key: string, entries: any[], pinned?: boolean): void {
+  const fetchedAt = Date.now()
+  hotCache.set(key, { entries, fetchedAt })
+
+  const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
+  const existing = all[key]
+  store.set('twitchCache', {
+    ...all,
+    [key]: { entries, fetchedAt, pinned: pinned ?? existing?.pinned ?? false }
+  })
+}
+
+/** Toggle pinned status for a cache key without touching entries */
+function pinCachedChannel(key: string, pinned: boolean): void {
+  const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
+  if (!all[key]) return
+  store.set('twitchCache', { ...all, [key]: { ...all[key], pinned } })
+}
+
+// IPC: get cache metadata for a channel (fetchedAt, pinned) so renderer can display it
+ipcMain.handle('get-twitch-cache-meta', (_e, channelName: string) => {
+  const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
+  const vods = all[`${channelName}:vods`]
+  const clips = all[`${channelName}:clips`]
+  return {
+    vods:  vods  ? { fetchedAt: vods.fetchedAt,  pinned: vods.pinned  } : null,
+    clips: clips ? { fetchedAt: clips.fetchedAt, pinned: clips.pinned } : null,
+  }
+})
+
+// IPC: set pinned flag for both vods and clips of a channel
+ipcMain.handle('set-twitch-channel-pin', (_e, channelName: string, pinned: boolean) => {
+  pinCachedChannel(`${channelName}:vods`, pinned)
+  pinCachedChannel(`${channelName}:clips`, pinned)
+  return { success: true }
+})
+
+/** Fetch GQL dates for VODs, returns id→timestamp map */
+async function fetchGqlDates(channelName: string, maxEntries: number): Promise<Record<string, number>> {
+  const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko'
+  const dateMap: Record<string, number> = {}
+  let cursor: string | null = null
+  let fetched = 0
+  const maxPages = Math.ceil(Math.min(maxEntries, 500) / 100)
+
+  const gqlRequest = (body: string): Promise<any> => new Promise((resolve, reject) => {
+    const req = net.request({ url: 'https://gql.twitch.tv/gql', method: 'POST' })
+    req.setHeader('Content-Type', 'application/json')
+    req.setHeader('Client-ID', CLIENT_ID)
+    let data = ''
+    req.on('response', res => {
+      res.on('data', (c: Buffer) => { data += c.toString() })
+      res.on('end', () => { try { resolve(JSON.parse(data)) } catch (e) { reject(e) } })
+    })
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+
+  for (let page = 0; page < maxPages; page++) {
+    const paginationArg = cursor ? `, after: "${cursor}"` : ''
+    const gqlResult = await gqlRequest(JSON.stringify([{
+      query: `query {
+        user(login: "${channelName}") {
+          videos(first: 100, type: ARCHIVE, sort: TIME${paginationArg}) {
+            edges { node { id createdAt } cursor }
+            pageInfo { hasNextPage }
+          }
+        }
+      }`
+    }]))
+    const edges = gqlResult?.[0]?.data?.user?.videos?.edges ?? []
+    for (const edge of edges) {
+      const node = edge?.node
+      if (node?.id && node?.createdAt) {
+        const ts = Math.floor(new Date(node.createdAt).getTime() / 1000)
+        dateMap[`v${node.id}`] = ts
+        dateMap[node.id] = ts
+      }
+    }
+    fetched += edges.length
+    const hasNextPage = gqlResult?.[0]?.data?.user?.videos?.pageInfo?.hasNextPage
+    if (!hasNextPage || edges.length === 0) break
+    cursor = edges[edges.length - 1]?.cursor ?? null
+    if (!cursor) break
+  }
+  return dateMap
+}
+
+/** Run yt-dlp flat-playlist asynchronously and return parsed entries.
+ *  Uses spawn (not spawnSync) so the main process stays responsive during the call.
+ */
+function fetchYtDlpEntries(url: string): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(
+      getYtDlpPath(),
+      [url, '--flat-playlist', '--dump-json', '--yes-playlist', '--no-warnings'],
+      { encoding: 'utf8' }
+    )
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => { proc.kill(); reject(new Error('yt-dlp timeout after 30s')) }, 30000)
+    proc.stdout.on('data', (d: Buffer | string) => { stdout += d.toString() })
+    proc.stderr.on('data', (d: Buffer | string) => { stderr += d.toString() })
+    proc.on('close', (code: number | null) => {
+      clearTimeout(timer)
+      if (code !== 0 && !stdout.trim()) {
+        reject(new Error(stderr.slice(0, 300) || `yt-dlp exited with code ${code}`))
+        return
+      }
+      const entries = stdout.trim().split('\n').filter(Boolean).map(line => {
+        try { return JSON.parse(line) } catch { return null }
+      }).filter(Boolean)
+      resolve(entries)
+    })
+    proc.on('error', (err: Error) => { clearTimeout(timer); reject(err) })
+  })
+}
+
 // Fetch Twitch channel content (vods or clips)
-ipcMain.handle('fetch-twitch-channel', async (_e, channelName: string, type: 'vods' | 'clips') => {
+// - Returns persistent cached result instantly (7 days TTL, or forever if pinned)
+// - Runs yt-dlp + GQL in parallel (Promise.all) for VODs
+// - Supports background refresh: pass refresh=true to force new fetch
+ipcMain.handle('fetch-twitch-channel', async (_e, channelName: string, type: 'vods' | 'clips', refresh = false) => {
+  const cacheKey = `${channelName}:${type}`
+
+  // Return cache immediately unless caller asked for a refresh
+  if (!refresh) {
+    const cached = getCachedChannel(cacheKey)
+    if (cached) {
+      console.log(`[twitch-cache] HIT ${cacheKey} (${cached.entries.length} entries, age ${Math.round((Date.now() - cached.fetchedAt) / 1000)}s, pinned=${cached.pinned})`)
+      return { success: true, entries: cached.entries, fromCache: true, pinned: cached.pinned, fetchedAt: cached.fetchedAt }
+    }
+  }
+
   const url = type === 'vods'
     ? `https://www.twitch.tv/${channelName}/videos?filter=archives&sort=time`
     : `https://www.twitch.tv/${channelName}/clips?filter=clips&range=all`
+
   try {
-    const result = spawnSync(
-      getYtDlpPath(),
-      [url, '--flat-playlist', '--dump-json', '--yes-playlist', '--no-warnings'],
-      { encoding: 'utf8', timeout: 30000 }
-    )
-    const entries = (result.stdout || '').trim().split('\n').filter(Boolean).map(line => {
-      try { return JSON.parse(line) } catch { return null }
-    }).filter(Boolean)
-    return { success: true, entries }
+    let entries: any[]
+
+    if (type === 'vods') {
+      // ── Parallel fetch: yt-dlp entries + GQL dates ────────────────────────
+      // We can't know entry count before yt-dlp finishes, so run both at the same time.
+      // GQL fetches page 1 (100 items) immediately; if more pages are needed we do them after.
+      const [ytEntries, dateMapPage1] = await Promise.all([
+        fetchYtDlpEntries(url),
+        fetchGqlDates(channelName, 100).catch(() => ({} as Record<string, number>)),
+      ])
+      entries = ytEntries
+
+      // If there are more than 100 entries, fetch remaining GQL pages now
+      let dateMap = dateMapPage1
+      if (entries.length > Object.keys(dateMapPage1).length / 2) {
+        // Might need more pages — re-fetch fully now that we know the count
+        try {
+          dateMap = await fetchGqlDates(channelName, entries.length)
+        } catch { /* use page1 map */ }
+      }
+
+      // Merge dates into entries
+      for (const e of entries) {
+        const ts = dateMap[e.id] ?? dateMap[(e.id ?? '').replace(/^v/, '')]
+        if (ts) {
+          e.timestamp = ts
+          const d = new Date(ts * 1000)
+          e.upload_date = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`
+        }
+      }
+      console.log(`[twitch-fetch] VODs: ${entries.length} entries, dateMap: ${Object.keys(dateMap).length} dates`)
+    } else {
+      // Clips: yt-dlp already carries timestamps, no GQL needed
+      entries = await fetchYtDlpEntries(url)
+    }
+
+    // Save to persistent cache (preserve pinned flag if already set)
+    const existingMeta = (store.get('twitchCache') as Record<string, TwitchPersistedEntry>)[cacheKey]
+    setCachedChannel(cacheKey, entries, existingMeta?.pinned)
+    return { success: true, entries, fromCache: false, pinned: existingMeta?.pinned ?? false, fetchedAt: Date.now() }
   } catch (e) {
     return { success: false, error: String(e), entries: [] }
   }
@@ -1296,6 +1564,59 @@ app.whenReady().then(async () => {
     const allowed = ['media', 'autoplay', 'fullscreen', 'mediaKeySystem']
     callback(allowed.includes(permission))
   })
+
+  // ── YouTube ad blocking for the VideoPlayerPanel webview (persist:yt-preview) ──
+  const ytPreviewSession = session.fromPartition('persist:yt-preview')
+
+  // Block ad-serving domains and YouTube ad endpoints at the network level.
+  // This prevents ad video streams, tracking pixels, and ad scripts from ever loading.
+  const YT_AD_PATTERNS = [
+    '*://*.doubleclick.net/*',
+    '*://doubleclick.net/*',
+    '*://*.googlesyndication.com/*',
+    '*://*.googleadservices.com/*',
+    '*://*.google-analytics.com/*',
+    '*://www.googletagmanager.com/*',
+    '*://*.googletagservices.com/*',
+    '*://*.adsystem.com/*',
+    '*://securepubads.g.doubleclick.net/*',
+    '*://static.doubleclick.net/*',
+    '*://ad.doubleclick.net/*',
+    '*://www.youtube.com/pagead/*',
+    '*://www.youtube.com/api/stats/ads*',
+    '*://www.youtube.com/ptracking*',
+    '*://www.youtube.com/adview*',
+    '*://www.youtube.com/ad_data_204*',
+    '*://www.youtube.com/youtubei/v1/log_event*',
+    // Рекламные видеопотоки через googlevideo
+    '*://*.googlevideo.com/videoplayback?*ctier=L*',
+    '*://*.googlevideo.com/videoplayback?*oad=1*',
+    // Дополнительные рекламные эндпоинты YouTube
+    '*://www.youtube.com/youtubei/v1/next?*adunit*',
+    '*://www.youtube.com/get_video_info?*adformat*',
+  ]
+
+  ytPreviewSession.webRequest.onBeforeRequest(
+    { urls: YT_AD_PATTERNS },
+    (_details, callback) => callback({ cancel: true })
+  )
+
+  // Дополнительно: блокируем заголовок "X-YouTube-Client-Name" для рекламных запросов
+  // и автоматически пропускаем рекламу через модификацию ответа
+  ytPreviewSession.webRequest.onHeadersReceived({ urls: ['*://www.youtube.com/*'] }, (details, callback) => {
+    const headers = details.responseHeaders ?? {}
+    // Убираем заголовок Content-Security-Policy — иначе наша CSS/JS инъекция блокируется
+    delete headers['content-security-policy']
+    delete headers['Content-Security-Policy']
+    callback({ responseHeaders: headers })
+  })
+
+  // Allow media permissions for yt-preview session
+  ytPreviewSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    const allowed = ['media', 'autoplay', 'fullscreen', 'mediaKeySystem']
+    callback(allowed.includes(permission))
+  })
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Inject CSS into Twitch player sub-frames to hide subscribe/follow overlays
   app.on('web-contents-created', (_, wc) => {

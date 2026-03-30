@@ -91,6 +91,18 @@ function formatViews(n: number | undefined, t: Translations): string {
   return `${n} ${t.views}`
 }
 
+/** Format cache age for tooltip: "2h ago", "3d ago", "just now" */
+function formatCacheAge(fetchedAt: number): string {
+  const diffMs = Date.now() - fetchedAt
+  const mins = Math.floor(diffMs / 60000)
+  const hours = Math.floor(diffMs / 3600000)
+  const days = Math.floor(diffMs / 86400000)
+  if (days >= 1) return `${days}d ago`
+  if (hours >= 1) return `${hours}h ago`
+  if (mins >= 1) return `${mins}m ago`
+  return 'just now'
+}
+
 function detectPlatform(url: string): Platform {
   if (url.includes('twitch.tv')) return 'twitch'
   if (url.includes('vk.com') || url.includes('vkvideo.ru')) return 'vk'
@@ -279,11 +291,25 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
 }) {
   const webviewRef = useRef<any>(null)
   const trackRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef<'start' | 'end' | 'head' | null>(null)
+  const resizingRef = useRef<string | null>(null)
+  const resizeStartRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  const saveSizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [panelSize, setPanelSize] = useState<{ width: number | null; height: number | null }>({ width: null, height: null })
+
+  // Load saved panel size on mount
+  useEffect(() => {
+    window.api.getAppState().then((s: Record<string, unknown>) => {
+      const w = typeof s.playerPanelWidth  === 'number' ? s.playerPanelWidth  : null
+      const h = typeof s.playerPanelHeight === 'number' ? s.playerPanelHeight : null
+      if (w || h) setPanelSize({ width: w, height: h })
+    }).catch(() => {})
+  }, [])
   const isSeekingRef = useRef(false)
   const seekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ready, setReady] = useState(false)
-  const [playing, setPlaying] = useState(true)
+  const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [startSec, setStartSec] = useState(0)
   const [endSec, setEndSec] = useState(duration ?? 0)
@@ -318,6 +344,44 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
 
   const dur = duration ?? 0
 
+  // ── Resize logic ──────────────────────────────────────────────────────────
+  const startResize = (dir: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const panel = panelRef.current
+    if (!panel) return
+    const rect = panel.getBoundingClientRect()
+    resizingRef.current = dir
+    resizeStartRef.current = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height }
+
+    const onMove = (me: MouseEvent) => {
+      const s = resizeStartRef.current!
+      const dx = me.clientX - s.x
+      const dy = me.clientY - s.y
+      let newW = s.w
+      let newH = s.h
+      const dir = resizingRef.current!
+      if (dir.includes('e')) newW = Math.max(340, s.w + dx)
+      if (dir.includes('w')) newW = Math.max(340, s.w - dx)
+      if (dir.includes('s')) newH = Math.max(300, s.h + dy)
+      if (dir.includes('n')) newH = Math.max(300, s.h - dy)
+      setPanelSize({ width: newW, height: newH })
+      // Debounce save — 600ms after last move
+      if (saveSizeTimerRef.current) clearTimeout(saveSizeTimerRef.current)
+      saveSizeTimerRef.current = setTimeout(() => {
+        window.api.saveAppState({ playerPanelWidth: Math.round(newW), playerPanelHeight: Math.round(newH) } as any).catch(() => {})
+      }, 600)
+    }
+    const onUp = () => {
+      resizingRef.current = null
+      resizeStartRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   // Build embed URL — for Twitch, use our local HTTP server so parent=localhost is valid
   useEffect(() => {
     if (platform === 'twitch') {
@@ -330,30 +394,75 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
         setEmbedUrl(`https://player.twitch.tv/?video=${id}&parent=localhost&autoplay=false`)
       })
     } else {
+      // Use our local preview server with YouTube IFrame API — avoids Error 153,
+      // correct origin, no embed restrictions, full player control via __ytXxx helpers
       const id = extractEmbedId(url, platform)
-      setEmbedUrl(id ? `https://www.youtube.com/embed/${id}?autoplay=0&controls=1&rel=0&enablejsapi=1` : null)
+      if (!id) { setEmbedUrl(null); return }
+      window.api.getPreviewPort().then(port => {
+        setEmbedUrl(`http://localhost:${port}/?yt=${id}`)
+      }).catch(() => { setEmbedUrl(null) })
     }
   }, [url, platform])
 
-  // dom-ready: hide Twitch overlay UI via CSS injection
+  // dom-ready: hide Twitch/YouTube overlay UI via CSS injection
   useEffect(() => {
     const wv = webviewRef.current
     if (!wv) return
     const onReady = async () => {
       setReady(true)
-      // For the Twitch embed player, hide only the subscribe/follow overlay
-      // that appears on top of the video (not the player chrome itself)
+      const isYtLocal = embedUrl?.includes('?yt=')
       try {
-        await wv.insertCSS(`
-          html, body { margin: 0 !important; padding: 0 !important; background: #000 !important; }
-          /* Hide subscribe/follow/mature banners that overlay the video */
-          [data-a-target="player-overlay-mature-accept"],
-          [data-test-selector="subscribe-button__subscribe-button"],
-          .channel-info-bar, .top-bar {
-            display: none !important;
-          }
-        `)
+        if (platform === 'youtube' && !isYtLocal) {
+          // Full YouTube page: hide page chrome, keep only the player area
+          await wv.insertCSS(`
+            html, body { margin: 0; padding: 0; background: #000 !important; overflow: hidden; }
+            .ytp-ad-module, .video-ads, .ytp-ad-overlay-container,
+            .ytp-ad-text-overlay, .ytp-ad-image-overlay,
+            .ytp-ad-player-overlay-instream-info,
+            .ytp-ad-skip-button-container, .ytp-ad-visit-advertiser-button,
+            .ytp-ad-progress, .ytp-ad-progress-list,
+            .ytp-cards-button, .ytp-watermark,
+            .ytp-share-button, .ytp-subtitles-button { display: none !important; }
+          `)
+        } else if (platform === 'youtube' && isYtLocal) {
+          // IFrame API local page: nothing to inject, player handles itself
+        } else {
+          // Twitch: hide subscribe/follow/mature banners
+          await wv.insertCSS(`
+            html, body { margin: 0 !important; padding: 0 !important; background: #000 !important; }
+            [data-a-target="player-overlay-mature-accept"],
+            [data-test-selector="subscribe-button__subscribe-button"],
+            .channel-info-bar, .top-bar {
+              display: none !important;
+            }
+          `)
+        }
       } catch { /* ignore */ }
+
+      // For YouTube IFrame API: wait for player init then sync state
+      if (platform === 'youtube' && isYtLocal) {
+        setTimeout(async () => {
+          try {
+            const result = await wv.executeJavaScript(`(()=>{try{return typeof window.__ytIsPlaying==='function'?window.__ytIsPlaying():false}catch(e){return false}})()`)
+            setPlaying(!!result)
+          } catch {}
+        }, 3000)
+      } else if (platform === 'youtube') {
+        setTimeout(async () => {
+          try {
+            const result = await wv.executeJavaScript(`(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getPlayerState==='function')return mp.getPlayerState()===1;const v=document.querySelector('video');return v?!v.paused:false}catch(e){return false}})()`)
+            setPlaying(!!result)
+          } catch {}
+        }, 3000)
+      } else {
+        // Twitch: just sync state after a delay
+        setTimeout(async () => {
+          try {
+            const result = await wv.executeJavaScript(`(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.isPaused==='function')return !window.__twitchPlayer.isPaused();const v=document.querySelector('video');return v?!v.paused:false}catch(e){return false}})()`)
+            setPlaying(!!result)
+          } catch {}
+        }, 2000)
+      }
     }
 
     wv.addEventListener('dom-ready', onReady)
@@ -364,10 +473,13 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
   // so we query inside the iframe's contentDocument
   useEffect(() => {
     if (!ready) return
-    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost') && !embedUrl.includes('?yt=')
+    const isYtLocal = embedUrl?.includes('?yt=')
     const js = isTwitchLocal
       ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()`
-      : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
+      : isYtLocal
+        ? `(()=>{try{return typeof window.__ytGetTime==='function'?window.__ytGetTime():-1}catch(e){return -1}})()`
+        : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
     const iv = setInterval(async () => {
       if (isSeekingRef.current) return
       try {
@@ -381,16 +493,23 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
   const seekTo = async (sec: number) => {
     const wv = webviewRef.current
     if (!wv) return
-    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost') && !embedUrl.includes('?yt=')
+    const isYtLocal = embedUrl?.includes('?yt=')
     const s = Math.round(sec)
     const js = isTwitchLocal
-      ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.seek==='function'){window.__twitchPlayer.seek(${s});return;}}catch(e){}})()`
-      : `(()=>{try{
-          const mp=document.getElementById('movie_player');
-          if(mp&&typeof mp.seekTo==='function'){mp.seekTo(${s},true);return;}
-          const v=document.querySelector('video');
-          if(v){v.currentTime=${s};return;}
-        }catch(e){}})()`
+      ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.seek==='function'){window.__twitchPlayer.seek(${s});}}catch(e){}})()`
+      : isYtLocal
+        ? `(()=>{try{if(typeof window.__ytSeek==='function')window.__ytSeek(${s});}catch(e){}})()`
+        : `(()=>{try{
+            const mp=document.getElementById('movie_player');
+            if(mp&&typeof mp.seekTo==='function'){mp.seekTo(${s},true);return;}
+            const v=document.querySelector('video');
+            if(v){
+              const wasPlaying=!v.paused;
+              v.currentTime=${s};
+              if(wasPlaying){setTimeout(()=>{if(v.paused)v.play().catch(()=>{})},200);}
+            }
+          }catch(e){}})()`
     try { await wv.executeJavaScript(js) } catch {}
   }
 
@@ -402,10 +521,13 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
     seekTo(sec)
     // Снимаем блокировку только когда плеер реально добрался до нужной позиции
     const started = Date.now()
-    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost') && !embedUrl.includes('?yt=')
+    const isYtLocal = embedUrl?.includes('?yt=')
     const checkJs = isTwitchLocal
       ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()`
-      : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
+      : isYtLocal
+        ? `(()=>{try{return typeof window.__ytGetTime==='function'?window.__ytGetTime():-1}catch(e){return -1}})()`
+        : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
     const poll = setInterval(async () => {
       try {
         const ct = await webviewRef.current?.executeJavaScript(checkJs)
@@ -428,27 +550,56 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
   const togglePlay = async () => {
     const wv = webviewRef.current
     if (!wv) return
-    const isTwitchLocal = embedUrl?.startsWith('http://localhost')
-    const willPause = playing
+    const isTwitchLocal = embedUrl?.startsWith('http://localhost') && !embedUrl.includes('?yt=')
+    const isYtLocal = embedUrl?.includes('?yt=')
+    // Read actual player state
+    let isActuallyPlaying = playing
+    try {
+      const checkJs = isTwitchLocal
+        ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.isPaused==='function')return !window.__twitchPlayer.isPaused();return false}catch(e){return false}})()`
+        : isYtLocal
+          ? `(()=>{try{return typeof window.__ytIsPlaying==='function'?window.__ytIsPlaying():false}catch(e){return false}})()`
+          : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getPlayerState==='function')return mp.getPlayerState()===1;const v=document.querySelector('video');return v?!v.paused&&!v.ended:false}catch(e){return false}})()`
+      const result = await wv.executeJavaScript(checkJs)
+      if (typeof result === 'boolean') isActuallyPlaying = result
+    } catch {}
+    const willPause = isActuallyPlaying
     const js = isTwitchLocal
       ? `(()=>{try{if(window.__twitchPlayer){${willPause}?window.__twitchPlayer.pause():window.__twitchPlayer.play();}return 'ok'}catch(e){return 'err'}})()`
-      : `(()=>{try{
-          const mp=document.getElementById('movie_player');
-          if(mp){${willPause}?mp.pauseVideo():mp.playVideo();return 'ok';}
-          const v=document.querySelector('video');
-          if(v){${willPause}?v.pause():v.play();return 'ok';}
-          return 'noop'
-        }catch(e){return 'err'}})()`
+      : isYtLocal
+        ? `(()=>{try{${willPause}?(typeof window.__ytPause==='function'&&window.__ytPause()):(typeof window.__ytPlay==='function'&&window.__ytPlay());return 'ok'}catch(e){return 'err'}})()`
+        : `(()=>{try{
+            const mp=document.getElementById('movie_player');
+            if(mp){${willPause}?(mp.pauseVideo&&mp.pauseVideo()):(mp.playVideo&&mp.playVideo());return 'ok';}
+            const v=document.querySelector('video');
+            if(v){${willPause}?v.pause():v.play().catch(()=>{});return 'ok';}
+            return 'noop';
+          }catch(e){return 'err'}})()`
     try { await wv.executeJavaScript(js) } catch {}
-    setPlaying(p => !p)
+    setPlaying(!willPause)
+    // Verify after 500ms and correct if needed
+    setTimeout(async () => {
+      try {
+        const verifyJs = isTwitchLocal
+          ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.isPaused==='function')return !window.__twitchPlayer.isPaused();return false}catch(e){return false}})()`
+          : isYtLocal
+            ? `(()=>{try{return typeof window.__ytIsPlaying==='function'?window.__ytIsPlaying():false}catch(e){return false}})()`
+            : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getPlayerState==='function')return mp.getPlayerState()===1;const v=document.querySelector('video');return v?!v.paused&&!v.ended:false}catch(e){return false}})()`
+        const actual = await wv.executeJavaScript(verifyJs)
+        if (typeof actual === 'boolean') setPlaying(actual)
+      } catch {}
+    }, 500)
   }
 
   const getTime = async (): Promise<number> => {
     try {
-      const isTwitchLocal = embedUrl?.startsWith('http://localhost')
+      const isTwitchLocal = embedUrl?.startsWith('http://localhost') && !embedUrl.includes('?yt=')
+      const isYtLocal = embedUrl?.includes('?yt=')
       const js = isTwitchLocal
         ? `(()=>{try{if(window.__twitchPlayer&&typeof window.__twitchPlayer.getCurrentTime==='function')return Math.floor(window.__twitchPlayer.getCurrentTime());return -1}catch(e){return -1}})()`
-        : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?v.currentTime:-1}catch(e){return -1}})()`
+        : isYtLocal
+          ? `(()=>{try{return typeof window.__ytGetTime==='function'?window.__ytGetTime():-1}catch(e){return -1}})()`
+          : `(()=>{try{const mp=document.getElementById('movie_player');if(mp&&typeof mp.getCurrentTime==='function')return Math.floor(mp.getCurrentTime());const v=document.querySelector('video');return v?Math.floor(v.currentTime):-1}catch(e){return -1}})()`
       const ct = await webviewRef.current?.executeJavaScript(js)
       return typeof ct === 'number' && ct >= 0 ? ct : -1
     } catch { return -1 }
@@ -543,8 +694,17 @@ function VideoPlayerPanel({ url, platform, duration, onDownload, onClose, t }: {
 
   if (!embedUrl) return null
 
+  const panelStyle: React.CSSProperties = {
+    ...(panelSize.width  ? { width:  panelSize.width  + 'px' } : {}),
+    ...(panelSize.height ? { height: panelSize.height + 'px' } : {}),
+  }
+
   return (
-    <div className="vp-panel">
+    <div className="vp-panel" ref={panelRef} style={panelStyle}>
+      {/* Resize handles */}
+      {(['nw','n','ne','e','se','s','sw','w'] as const).map(dir => (
+        <div key={dir} className={`vp-resize-handle vp-rh-${dir}`} onMouseDown={startResize(dir)} />
+      ))}
       {/* Header */}
       <div className="vp-head">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -730,7 +890,9 @@ declare global {
       extractTwitchCookies: () => Promise<{ success: boolean; error?: string }>
       fetchVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>
       fetchPlaylistInfo: (url: string) => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
-      fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips') => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
+      fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips', refresh?: boolean) => Promise<{ success: boolean; entries?: PlaylistEntry[]; fromCache?: boolean; pinned?: boolean; fetchedAt?: number; error?: string }>
+      getTwitchCacheMeta: (channelName: string) => Promise<{ vods: { fetchedAt: number; pinned: boolean } | null; clips: { fetchedAt: number; pinned: boolean } | null }>
+      setTwitchChannelPin: (channelName: string, pinned: boolean) => Promise<{ success: boolean }>
       startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number }) => Promise<{ success: boolean; error?: string }>
       cancelDownload: (id: string) => Promise<{ success: boolean }>
       openFolder: (path: string) => Promise<void>
@@ -850,7 +1012,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
           </button>
         )}
         <div className="sb-status-row"><span className="sb-dot"/>{!collapsed && <span className="sb-ready">{t.status_ready}</span>}</div>
-        {!collapsed && <div className="sb-version">v1.0.7</div>}
+        {!collapsed && <div className="sb-version">v1.1.1</div>}
       </div>
     </aside>
   )
@@ -1060,6 +1222,42 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, init
 
 interface TwitchSelected { entry: PlaylistEntry; url: string; tab: 'vods'|'clips' }
 
+/** Extract a JS Date from a PlaylistEntry.
+ *  yt-dlp may return: upload_date "YYYYMMDD", timestamp (unix), release_timestamp,
+ *  epoch, modified_date, or ISO strings in various fields. */
+function entryDate(entry: PlaylistEntry): Date | null {
+  const e = entry as any
+
+  // Unix timestamp fields (seconds)
+  for (const key of ['timestamp', 'release_timestamp', 'epoch', 'modified_timestamp']) {
+    if (typeof e[key] === 'number' && e[key] > 0) return new Date(e[key] * 1000)
+  }
+
+  // YYYYMMDD string fields
+  for (const key of ['upload_date', 'release_date', 'modified_date']) {
+    const v: string | undefined = e[key]
+    if (v && /^\d{8}$/.test(v)) {
+      return new Date(`${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`)
+    }
+  }
+
+  // ISO date strings (e.g. "2024-03-15T20:00:00Z")
+  for (const key of ['upload_date_str', 'start_time', 'created_at']) {
+    const v: string | undefined = e[key]
+    if (v && v.includes('-')) {
+      const d = new Date(v)
+      if (!isNaN(d.getTime())) return d
+    }
+  }
+
+  return null
+}
+
+/** Format a Date as YYYY-MM-DD for display */
+function fmtDateYMD(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
 function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   channelName: string; t: Translations
   onSelect: (entry: PlaylistEntry, url: string) => void
@@ -1068,35 +1266,97 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   const [tab, setTab] = useState<'vods'|'clips'>('vods')
   const [allEntries, setAllEntries] = useState<Record<string, PlaylistEntry[]>>({ vods:[], clips:[] })
   const [loadingTab, setLoadingTab] = useState<'vods'|'clips'|null>(null)
+  const [fromCache, setFromCache] = useState<Record<string, boolean>>({ vods: false, clips: false })
+  const [fetchedAt, setFetchedAt] = useState<Record<string, number | null>>({ vods: null, clips: null })
+  const [pinned, setPinned] = useState(false)
+  const [refreshingTab, setRefreshingTab] = useState<'vods'|'clips'|null>(null)
   const loadedRef = useRef<Record<string,boolean>>({})
   // Счётчик поколений: при смене канала инкрементируется — старые ответы игнорируются
   const genRef = useRef(0)
   const [selected, setSelected] = useState<Record<string, TwitchSelected>>({})
   const [searchQuery, setSearchQuery] = useState('')
+  // Date filter state
+  const [dateMode, setDateMode] = useState<'range'|'exact'>('range')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [dateExact, setDateExact] = useState('')
+  const [showDateFilter, setShowDateFilter] = useState(false)
 
-  const load = async (type: 'vods'|'clips') => {
-    if (loadedRef.current[type]) return
+  const load = async (type: 'vods'|'clips', forceRefresh = false) => {
+    if (loadedRef.current[type] && !forceRefresh) return
     loadedRef.current[type] = true
-    const myGen = genRef.current  // захватываем текущее поколение
-    setLoadingTab(type)
-    const r = await window.api?.fetchTwitchChannel(channelName, type)
-    // Если канал сменился пока ждали — выбрасываем устаревший ответ
+    const myGen = genRef.current
+
+    if (forceRefresh) {
+      setRefreshingTab(type)
+    } else {
+      setLoadingTab(type)
+    }
+
+    const r = await window.api?.fetchTwitchChannel(channelName, type, forceRefresh)
     if (genRef.current !== myGen) return
-    setAllEntries(p => ({...p, [type]: r?.success && r.entries ? r.entries : []}))
+
+    if (r?.success && r.entries) {
+      setAllEntries(p => ({...p, [type]: r.entries}))
+      setFromCache(p => ({...p, [type]: !!r.fromCache}))
+      if (r.fetchedAt) setFetchedAt(p => ({...p, [type]: r.fetchedAt!}))
+      // NOTE: we do NOT set pinned from fetchTwitchChannel response —
+      // pin state is managed exclusively by getTwitchCacheMeta + togglePin
+      // to avoid race conditions when switching channels.
+
+      // If result came from cache, silently refresh in background
+      if (r.fromCache && !forceRefresh) {
+        window.api?.fetchTwitchChannel(channelName, type, true).then(fresh => {
+          if (genRef.current !== myGen) return
+          if (fresh?.success && fresh.entries) {
+            setAllEntries(p => ({...p, [type]: fresh.entries}))
+            setFromCache(p => ({...p, [type]: false}))
+            if (fresh.fetchedAt) setFetchedAt(p => ({...p, [type]: fresh.fetchedAt!}))
+          }
+        }).catch(() => {})
+      }
+    }
+
     setLoadingTab(null)
+    setRefreshingTab(null)
+  }
+
+  // Toggle pin for this channel — persists across sessions
+  const togglePin = async () => {
+    const next = !pinned
+    setPinned(next)
+    await window.api?.setTwitchChannelPin(channelName, next)
   }
 
   useEffect(() => {
-    genRef.current++            // инвалидируем все in-flight запросы старого канала
+    genRef.current++
     loadedRef.current = {}
     setAllEntries({ vods:[], clips:[] })
+    setFromCache({ vods: false, clips: false })
+    setFetchedAt({ vods: null, clips: null })
+    // Reset pin first, then fetch the real value — prevents stale state from prev channel
+    setPinned(false)
     setLoadingTab(null)
+    setRefreshingTab(null)
     setSearchQuery('')
+    setDateFrom('')
+    setDateTo('')
+    setDateExact('')
+    setShowDateFilter(false)
     setTab('vods')
+    // Fetch pin status first so it's ready before the user can interact
+    window.api?.getTwitchCacheMeta(channelName).then(meta => {
+      // Only update if we're still on this channel (gen guard)
+      const isPinned = !!(meta?.vods?.pinned || meta?.clips?.pinned)
+      setPinned(isPinned)
+      if (meta?.vods?.fetchedAt) setFetchedAt(p => ({...p, vods: meta.vods!.fetchedAt}))
+      if (meta?.clips?.fetchedAt) setFetchedAt(p => ({...p, clips: meta.clips!.fetchedAt}))
+    }).catch(() => {})
     load('vods')
   }, [channelName])
   const switchTab = (type: 'vods'|'clips') => { setTab(type); load(type) }
   const loading = loadingTab !== null
+  const refreshing = refreshingTab === tab
 
   const toggleSelect = (entry: PlaylistEntry, url: string) => {
     setSelected(p => {
@@ -1106,9 +1366,22 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   }
 
   const selectedList = Object.values(selected)
-  const entries = searchQuery.trim()
+  // Text search filter
+  const afterSearch = searchQuery.trim()
     ? allEntries[tab].filter(e => e.title?.toLowerCase().includes(searchQuery.toLowerCase()))
     : allEntries[tab]
+
+  // Date filter
+  const dateFilterActive = (dateMode === 'exact' && dateExact) || (dateMode === 'range' && (dateFrom || dateTo))
+  const entries = dateFilterActive ? afterSearch.filter(e => {
+    const d = entryDate(e)
+    if (!d) return false
+    const ds = fmtDateYMD(d)
+    if (dateMode === 'exact') return ds === dateExact
+    if (dateFrom && ds < dateFrom) return false
+    if (dateTo && ds > dateTo) return false
+    return true
+  }) : afterSearch
 
   return (
     <div className="twitch-browser">
@@ -1120,6 +1393,30 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
         <button className="twitch-open-btn" onClick={() => window.api?.openExternal(`https://www.twitch.tv/${channelName}/videos`)} title="Open on Twitch">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           Twitch
+        </button>
+        {/* Pin toggle — keeps cache forever, survives app restart */}
+        <button
+          className={`twitch-pin-btn${pinned ? ' twitch-pin-on' : ''}`}
+          onClick={togglePin}
+          title={pinned ? t.twitch_pinned_hint : t.twitch_pin_hint}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+          <span>{pinned ? t.twitch_pinned : t.twitch_pin}</span>
+        </button>
+        <button
+          className={`twitch-refresh-btn${refreshing ? ' twitch-refresh-spin' : ''}${fromCache[tab] ? ' twitch-refresh-cached' : ''}`}
+          onClick={() => load(tab, true)}
+          disabled={loading || refreshing}
+          title={
+            fromCache[tab] && fetchedAt[tab]
+              ? `Cached ${formatCacheAge(fetchedAt[tab]!)} — click to refresh`
+              : 'Refresh'
+          }
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          {fromCache[tab] && !refreshing && <span className="twitch-cache-dot" title="From cache"/>}
         </button>
         <div className="twitch-tabs">
           <button className={`twitch-tab ${tab==='vods'?'twitch-tab-on':''}`} onClick={() => switchTab('vods')}>
@@ -1152,6 +1449,50 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
         {searchQuery && <button className="twitch-search-clear" onClick={() => setSearchQuery('')}>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>}
+      </div>
+
+      {/* Date filter */}
+      <div className="twitch-date-filter">
+        <button
+          className={`twitch-date-toggle${showDateFilter ? ' twitch-date-toggle-on' : ''}${dateFilterActive ? ' twitch-date-active' : ''}`}
+          onClick={() => setShowDateFilter(v => !v)}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="4" width="18" height="18" rx="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span>{t.twitch_date_filter_label}</span>
+          {dateFilterActive && <span className="twitch-date-badge">{entries.length}</span>}
+          <svg className={`tr-arrow${showDateFilter ? ' tr-arrow-open' : ''}`} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        {showDateFilter && (
+          <div className="twitch-date-body">
+            <div className="twitch-date-mode-row">
+              <button className={`twitch-date-mode-btn${dateMode === 'range' ? ' on' : ''}`} onClick={() => setDateMode('range')}>{t.twitch_date_mode_range}</button>
+              <button className={`twitch-date-mode-btn${dateMode === 'exact' ? ' on' : ''}`} onClick={() => setDateMode('exact')}>{t.twitch_date_mode_exact}</button>
+            </div>
+            {dateMode === 'range' ? (
+              <div className="twitch-date-range-row">
+                <label className="twitch-date-label">{t.twitch_date_from}</label>
+                <input type="date" className="twitch-date-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                <label className="twitch-date-label">{t.twitch_date_to}</label>
+                <input type="date" className="twitch-date-input" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+              </div>
+            ) : (
+              <div className="twitch-date-range-row">
+                <label className="twitch-date-label">{t.twitch_date_exact}</label>
+                <input type="date" className="twitch-date-input" value={dateExact} onChange={e => setDateExact(e.target.value)} />
+              </div>
+            )}
+            {!!dateFilterActive && (
+              <button className="twitch-date-clear" onClick={() => { setDateFrom(''); setDateTo(''); setDateExact('') }}>
+                {t.twitch_date_clear}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {selectedList.length > 0 && (
@@ -1188,7 +1529,12 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
                   {entry.thumbnail ? <img src={entry.thumbnail} alt=""/> : <div className="twitch-entry-thumb-ph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>}
                   {entry.duration && <span className="twitch-entry-dur">{formatDur(entry.duration)}</span>}
                 </div>
-                <div className="twitch-entry-meta"><span className="twitch-entry-title">{entry.title}</span></div>
+                <div className="twitch-entry-meta">
+                  <span className="twitch-entry-title">{entry.title}</span>
+                  {entryDate(entry) && (
+                    <span className="twitch-entry-date">{fmtDateYMD(entryDate(entry)!)}</span>
+                  )}
+                </div>
                 <svg className="twitch-entry-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
               <button className="twitch-entry-open" onClick={e=>{e.stopPropagation();window.api?.openExternal(videoUrl)}} title="Watch on Twitch">
