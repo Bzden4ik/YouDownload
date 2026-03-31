@@ -4437,11 +4437,50 @@ body::after {
   position: absolute; top: 3px; right: 3px;
 }
 
-/* spinning icon during background refresh */
+/* spinning icon during active refresh */
 @keyframes twitch-spin { to { transform: rotate(360deg); } }
 .twitch-refresh-spin svg {
   animation: twitch-spin 0.7s linear infinite;
 }
+
+/* slow spin during background (phase 3) refresh */
+@keyframes twitch-spin-slow { to { transform: rotate(360deg); } }
+.twitch-refresh-bg svg {
+  animation: twitch-spin-slow 2s linear infinite;
+  opacity: 0.55;
+}
+.twitch-refresh-bg {
+  color: var(--t2);
+}
+.twitch-bg-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(100, 180, 255, 0.85);
+  position: absolute; top: 3px; right: 3px;
+  animation: twitch-bgdot-pulse 1.5s ease-in-out infinite;
+}
+@keyframes twitch-bgdot-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%       { opacity: 1;   transform: scale(1.15); }
+}
+
+/* ── Delta indicator (phase 2 GQL check) ─────────────────────────────────── */
+.twitch-delta-indicator {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(145, 70, 255, 0.08);
+  border: 1px solid rgba(145, 70, 255, 0.2);
+  color: rgba(145, 70, 255, 0.75);
+  font-size: 11px; flex-shrink: 0;
+}
+.twitch-delta-spin {
+  width: 10px; height: 10px;
+  border: 1.5px solid rgba(145, 70, 255, 0.3);
+  border-top-color: rgba(145, 70, 255, 0.85);
+  border-radius: 50%;
+  animation: twitch-spin 0.7s linear infinite;
+  display: inline-block; flex-shrink: 0;
+}
+.twitch-delta-label { white-space: nowrap; }
 
 /* ── Twitch pin button ─────────────────────────────────────────────────────── */
 .twitch-pin-btn {
@@ -4460,4 +4499,193 @@ body::after {
 }
 .twitch-pin-btn.twitch-pin-on:hover {
   background: rgba(167,139,250,0.15); border-color: rgba(167,139,250,0.5);
+}
+
+/* Sort bar */
+.twitch-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 14px 10px;
+  flex-wrap: wrap;
+  color: var(--t2);
+}
+.twitch-sort-btn {
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--bd);
+  background: var(--bg2);
+  color: var(--t1);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.twitch-sort-btn:hover {
+  background: var(--bg3);
+  border-color: var(--bd2);
+}
+.twitch-sort-active {
+  background: rgba(139,92,246,0.15) !important;
+  border-color: rgba(139,92,246,0.45) !important;
+  color: #a78bfa !important;
+}
+.twitch-sort-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--t3);
+}
+.twitch-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.twitch-entry-views {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+
+/* ═══════════════════════ PINNED STREAMERS PANEL ═══════════════════════ */
+.pinned-panel {
+  margin: 0 0 10px 0;
+  padding: 10px 14px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.pinned-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--t1);
+}
+.pinned-panel-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t1);
+}
+.pinned-panel-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pinned-chip-live:hover {
+  border-color: rgba(74,222,128,0.6) !important;
+}
+.pinned-chip-live {
+  border-color: rgba(74,222,128,0.4);
+}
+.pinned-chip-live:hover {
+  border-color: rgba(74,222,128,0.6);
+}
+.pinned-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--g);
+  box-shadow: 0 0 6px rgba(74,222,128,0.7);
+  flex-shrink: 0;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.pinned-chip-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pinned-chip-unpin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--t2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.pinned-chip-unpin:hover {
+  color: var(--r);
+  background: rgba(239,68,68,0.12);
+}
+
+.twitch-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--t2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.twitch-back-btn:hover {
+  background: var(--bg4);
+  color: var(--t1);
+  border-color: var(--border2);
+}
+
+/* ── Pinned chip: drag-to-reorder + avatar ── */
+.pinned-chip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  cursor: grab;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  user-select: none;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.pinned-chip:active { cursor: grabbing; }
+.pinned-chip:hover { background: var(--bg4); border-color: var(--border2); }
+.pinned-chip-drag-over {
+  border-color: var(--acc) !important;
+  background: var(--bg4);
+  box-shadow: 0 0 0 2px rgba(56,189,248,0.22);
+}
+.pinned-chip-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  background: transparent;
+  border: none;
+  color: var(--t1);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  min-width: 0;
+}
+.pinned-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.pinned-avatar-ph {
+  background: var(--bg4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

@@ -43,6 +43,7 @@ interface TwitchPersistedEntry {
   entries: any[]
   fetchedAt: number
   pinned: boolean // true = no TTL (keep forever)
+  lastDeltaCheckedAt?: number // last time we ran a delta (recent-only) check
 }
 
 interface StoreSchema {
@@ -878,8 +879,9 @@ function pinCachedChannel(key: string, pinned: boolean): void {
 // IPC: get cache metadata for a channel (fetchedAt, pinned) so renderer can display it
 ipcMain.handle('get-twitch-cache-meta', (_e, channelName: string) => {
   const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
-  const vods = all[`${channelName}:vods`]
-  const clips = all[`${channelName}:clips`]
+  const cn = channelName.toLowerCase()
+  const vods = all[`${cn}:vods`]
+  const clips = all[`${cn}:clips`]
   return {
     vods:  vods  ? { fetchedAt: vods.fetchedAt,  pinned: vods.pinned  } : null,
     clips: clips ? { fetchedAt: clips.fetchedAt, pinned: clips.pinned } : null,
@@ -888,9 +890,23 @@ ipcMain.handle('get-twitch-cache-meta', (_e, channelName: string) => {
 
 // IPC: set pinned flag for both vods and clips of a channel
 ipcMain.handle('set-twitch-channel-pin', (_e, channelName: string, pinned: boolean) => {
-  pinCachedChannel(`${channelName}:vods`, pinned)
-  pinCachedChannel(`${channelName}:clips`, pinned)
+  const cn = channelName.toLowerCase()
+  pinCachedChannel(`${cn}:vods`, pinned)
+  pinCachedChannel(`${cn}:clips`, pinned)
   return { success: true }
+})
+
+// IPC: get all channel names that have pinned=true in twitchCache
+ipcMain.handle('get-twitch-pinned-channels', () => {
+  const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
+  const pinnedSet = new Set<string>()
+  for (const key of Object.keys(all)) {
+    if (all[key].pinned) {
+      const channelName = key.replace(/:vods$|:clips$/, '')
+      if (channelName) pinnedSet.add(channelName)
+    }
+  }
+  return Array.from(pinnedSet)
 })
 
 /** Fetch GQL dates for VODs, returns id→timestamp map */
@@ -945,6 +961,225 @@ async function fetchGqlDates(channelName: string, maxEntries: number): Promise<R
   return dateMap
 }
 
+/** GQL helper: shared net.request wrapper */
+function gqlPost(body: string): Promise<any> {
+  const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko'
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url: 'https://gql.twitch.tv/gql', method: 'POST' })
+    req.setHeader('Content-Type', 'application/json')
+    req.setHeader('Client-ID', CLIENT_ID)
+    let data = ''
+    req.on('response', res => {
+      res.on('data', (c: Buffer) => { data += c.toString() })
+      res.on('end', () => { try { resolve(JSON.parse(data)) } catch (e) { reject(e) } })
+    })
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+}
+
+/**
+ * Fetch only CLIPS created after `since` (unix seconds).
+ * Uses GQL pagination and stops as soon as we see a clip older than `since`.
+ * Returns array of yt-dlp-compatible entry objects.
+ */
+async function fetchGqlClipsDelta(channelName: string, since: number): Promise<any[]> {
+  const newEntries: any[] = []
+  let cursor: string | null = null
+  const sinceMs = since * 1000
+
+  for (let page = 0; page < 50; page++) {
+    const paginationArg = cursor ? `, after: "${cursor}"` : ''
+    const result = await gqlPost(JSON.stringify([{
+      query: `query {
+        user(login: "${channelName}") {
+          clips(first: 100, criteria: { sort: CREATED_AT_DESC }${paginationArg}) {
+            edges {
+              cursor
+              node {
+                id slug title
+                createdAt
+                durationSeconds
+                viewCount
+                thumbnailURL(width: 480, height: 272)
+                broadcaster { login displayName }
+                game { name }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
+        }
+      }`
+    }]))
+
+    const edges = result?.[0]?.data?.user?.clips?.edges ?? []
+    let reachedOld = false
+
+    for (const edge of edges) {
+      const node = edge?.node
+      if (!node) continue
+      const createdAtMs = new Date(node.createdAt).getTime()
+      if (createdAtMs <= sinceMs) { reachedOld = true; break }
+
+      // Convert to yt-dlp-compatible entry shape
+      const ts = Math.floor(createdAtMs / 1000)
+      const d = new Date(createdAtMs)
+      newEntries.push({
+        id: node.slug ?? node.id,
+        title: node.title ?? node.slug,
+        url: `https://www.twitch.tv/${channelName}/clip/${node.slug ?? node.id}`,
+        webpage_url: `https://www.twitch.tv/${channelName}/clip/${node.slug ?? node.id}`,
+        thumbnail: node.thumbnailURL ?? null,
+        duration: node.durationSeconds ?? null,
+        view_count: node.viewCount ?? null,
+        timestamp: ts,
+        upload_date: `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`,
+        ie_key: 'TwitchClips',
+        _type: 'url',
+      })
+    }
+
+    if (reachedOld || !result?.[0]?.data?.user?.clips?.pageInfo?.hasNextPage || edges.length === 0) break
+    cursor = edges[edges.length - 1]?.cursor ?? null
+    if (!cursor) break
+  }
+
+  return newEntries
+}
+
+/**
+ * Fetch only VODs created after `since` (unix seconds) via GQL.
+ * Returns yt-dlp-compatible entry objects with timestamp/upload_date filled.
+ */
+async function fetchGqlVodsDelta(channelName: string, since: number): Promise<any[]> {
+  const newEntries: any[] = []
+  let cursor: string | null = null
+  const sinceMs = since * 1000
+
+  for (let page = 0; page < 20; page++) {
+    const paginationArg = cursor ? `, after: "${cursor}"` : ''
+    const result = await gqlPost(JSON.stringify([{
+      query: `query {
+        user(login: "${channelName}") {
+          videos(first: 100, type: ARCHIVE, sort: TIME${paginationArg}) {
+            edges {
+              cursor
+              node {
+                id title
+                createdAt
+                lengthSeconds
+                viewCount
+                thumbnailURLs(width: 480, height: 272)
+                game { name }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
+        }
+      }`
+    }]))
+
+    const edges = result?.[0]?.data?.user?.videos?.edges ?? []
+    let reachedOld = false
+
+    for (const edge of edges) {
+      const node = edge?.node
+      if (!node) continue
+      const createdAtMs = new Date(node.createdAt).getTime()
+      if (createdAtMs <= sinceMs) { reachedOld = true; break }
+
+      const ts = Math.floor(createdAtMs / 1000)
+      const d = new Date(createdAtMs)
+      newEntries.push({
+        id: `v${node.id}`,
+        title: node.title ?? `VOD ${node.id}`,
+        url: `https://www.twitch.tv/videos/${node.id}`,
+        webpage_url: `https://www.twitch.tv/videos/${node.id}`,
+        thumbnail: node.thumbnailURLs?.[0] ?? null,
+        duration: node.lengthSeconds ?? null,
+        view_count: node.viewCount ?? null,
+        timestamp: ts,
+        upload_date: `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`,
+        ie_key: 'TwitchVod',
+        _type: 'url',
+      })
+    }
+
+    if (reachedOld || !result?.[0]?.data?.user?.videos?.pageInfo?.hasNextPage || edges.length === 0) break
+    cursor = edges[edges.length - 1]?.cursor ?? null
+    if (!cursor) break
+  }
+
+  return newEntries
+}
+
+/**
+ * IPC: fetch-twitch-delta
+ * Fast GQL-only check for content newer than the last cached fetchedAt.
+ * Returns only NEW entries to prepend, plus the updated fetchedAt.
+ * Called between "show cached" and "full background refresh".
+ */
+ipcMain.handle('fetch-twitch-delta', async (_e, channelName: string, type: 'vods' | 'clips') => {
+  const cacheKey = `${channelName.toLowerCase()}:${type}`
+  const all = store.get('twitchCache') as Record<string, TwitchPersistedEntry>
+  const cached = all[cacheKey]
+
+  if (!cached) {
+    // No cache at all — delta makes no sense, tell renderer to do a full fetch
+    return { success: false, reason: 'no_cache' }
+  }
+
+  // Use lastDeltaCheckedAt if available (more granular), else fetchedAt
+  const since = cached.lastDeltaCheckedAt ?? cached.fetchedAt
+  const nowSec = Math.floor(Date.now() / 1000)
+  const ageSec = nowSec - Math.floor(since / 1000)
+
+  // If last check was less than 60 seconds ago — skip delta, nothing new could have appeared
+  if (ageSec < 60) {
+    return { success: true, newEntries: [], alreadyFresh: true }
+  }
+
+  console.log(`[twitch-delta] ${cacheKey}: checking new content since ${new Date(since).toISOString()} (${Math.round(ageSec/60)}min ago)`)
+
+  try {
+    const newEntries = type === 'clips'
+      ? await fetchGqlClipsDelta(channelName, Math.floor(since / 1000))
+      : await fetchGqlVodsDelta(channelName, Math.floor(since / 1000))
+
+    console.log(`[twitch-delta] ${cacheKey}: found ${newEntries.length} new entries`)
+
+    // Update lastDeltaCheckedAt in store (don't change fetchedAt — full refresh will do that)
+    const nowMs = Date.now()
+    store.set('twitchCache', {
+      ...store.get('twitchCache'),
+      [cacheKey]: { ...cached, lastDeltaCheckedAt: nowMs }
+    })
+
+    if (newEntries.length > 0) {
+      // Merge new entries into the hot cache too
+      const existingEntries = hotCache.get(cacheKey)?.entries ?? cached.entries
+      // Deduplicate by id — new entries go first (newest first ordering)
+      const existingIds = new Set(existingEntries.map((e: any) => e.id))
+      const truly_new = newEntries.filter(e => !existingIds.has(e.id))
+      if (truly_new.length > 0) {
+        const merged = [...truly_new, ...existingEntries]
+        hotCache.set(cacheKey, { entries: merged, fetchedAt: cached.fetchedAt })
+        store.set('twitchCache', {
+          ...store.get('twitchCache'),
+          [cacheKey]: { ...cached, entries: merged, lastDeltaCheckedAt: nowMs }
+        })
+      }
+      return { success: true, newEntries: truly_new, deltaCheckedAt: nowMs }
+    }
+
+    return { success: true, newEntries: [], deltaCheckedAt: nowMs }
+  } catch (e) {
+    console.error(`[twitch-delta] ${cacheKey} error:`, String(e))
+    return { success: false, reason: String(e) }
+  }
+})
+
 /** Run yt-dlp flat-playlist asynchronously and return parsed entries.
  *  Uses spawn (not spawnSync) so the main process stays responsive during the call.
  */
@@ -980,7 +1215,7 @@ function fetchYtDlpEntries(url: string): Promise<any[]> {
 // - Runs yt-dlp + GQL in parallel (Promise.all) for VODs
 // - Supports background refresh: pass refresh=true to force new fetch
 ipcMain.handle('fetch-twitch-channel', async (_e, channelName: string, type: 'vods' | 'clips', refresh = false) => {
-  const cacheKey = `${channelName}:${type}`
+  const cacheKey = `${channelName.toLowerCase()}:${type}`
 
   // Return cache immediately unless caller asked for a refresh
   if (!refresh) {

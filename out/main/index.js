@@ -759,17 +759,30 @@ function pinCachedChannel(key, pinned) {
 }
 electron.ipcMain.handle("get-twitch-cache-meta", (_e, channelName) => {
   const all = store.get("twitchCache");
-  const vods = all[`${channelName}:vods`];
-  const clips = all[`${channelName}:clips`];
+  const cn = channelName.toLowerCase();
+  const vods = all[`${cn}:vods`];
+  const clips = all[`${cn}:clips`];
   return {
     vods: vods ? { fetchedAt: vods.fetchedAt, pinned: vods.pinned } : null,
     clips: clips ? { fetchedAt: clips.fetchedAt, pinned: clips.pinned } : null
   };
 });
 electron.ipcMain.handle("set-twitch-channel-pin", (_e, channelName, pinned) => {
-  pinCachedChannel(`${channelName}:vods`, pinned);
-  pinCachedChannel(`${channelName}:clips`, pinned);
+  const cn = channelName.toLowerCase();
+  pinCachedChannel(`${cn}:vods`, pinned);
+  pinCachedChannel(`${cn}:clips`, pinned);
   return { success: true };
+});
+electron.ipcMain.handle("get-twitch-pinned-channels", () => {
+  const all = store.get("twitchCache");
+  const pinnedSet = /* @__PURE__ */ new Set();
+  for (const key of Object.keys(all)) {
+    if (all[key].pinned) {
+      const channelName = key.replace(/:vods$|:clips$/, "");
+      if (channelName) pinnedSet.add(channelName);
+    }
+  }
+  return Array.from(pinnedSet);
 });
 async function fetchGqlDates(channelName, maxEntries) {
   const CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -827,6 +840,189 @@ async function fetchGqlDates(channelName, maxEntries) {
   }
   return dateMap;
 }
+function gqlPost(body) {
+  const CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+  return new Promise((resolve, reject) => {
+    const req = electron.net.request({ url: "https://gql.twitch.tv/gql", method: "POST" });
+    req.setHeader("Content-Type", "application/json");
+    req.setHeader("Client-ID", CLIENT_ID);
+    let data = "";
+    req.on("response", (res) => {
+      res.on("data", (c) => {
+        data += c.toString();
+      });
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+async function fetchGqlClipsDelta(channelName, since) {
+  const newEntries = [];
+  let cursor = null;
+  const sinceMs = since * 1e3;
+  for (let page = 0; page < 50; page++) {
+    const paginationArg = cursor ? `, after: "${cursor}"` : "";
+    const result = await gqlPost(JSON.stringify([{
+      query: `query {
+        user(login: "${channelName}") {
+          clips(first: 100, criteria: { sort: CREATED_AT_DESC }${paginationArg}) {
+            edges {
+              cursor
+              node {
+                id slug title
+                createdAt
+                durationSeconds
+                viewCount
+                thumbnailURL(width: 480, height: 272)
+                broadcaster { login displayName }
+                game { name }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
+        }
+      }`
+    }]));
+    const edges = result?.[0]?.data?.user?.clips?.edges ?? [];
+    let reachedOld = false;
+    for (const edge of edges) {
+      const node = edge?.node;
+      if (!node) continue;
+      const createdAtMs = new Date(node.createdAt).getTime();
+      if (createdAtMs <= sinceMs) {
+        reachedOld = true;
+        break;
+      }
+      const ts = Math.floor(createdAtMs / 1e3);
+      const d = new Date(createdAtMs);
+      newEntries.push({
+        id: node.slug ?? node.id,
+        title: node.title ?? node.slug,
+        url: `https://www.twitch.tv/${channelName}/clip/${node.slug ?? node.id}`,
+        webpage_url: `https://www.twitch.tv/${channelName}/clip/${node.slug ?? node.id}`,
+        thumbnail: node.thumbnailURL ?? null,
+        duration: node.durationSeconds ?? null,
+        view_count: node.viewCount ?? null,
+        timestamp: ts,
+        upload_date: `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`,
+        ie_key: "TwitchClips",
+        _type: "url"
+      });
+    }
+    if (reachedOld || !result?.[0]?.data?.user?.clips?.pageInfo?.hasNextPage || edges.length === 0) break;
+    cursor = edges[edges.length - 1]?.cursor ?? null;
+    if (!cursor) break;
+  }
+  return newEntries;
+}
+async function fetchGqlVodsDelta(channelName, since) {
+  const newEntries = [];
+  let cursor = null;
+  const sinceMs = since * 1e3;
+  for (let page = 0; page < 20; page++) {
+    const paginationArg = cursor ? `, after: "${cursor}"` : "";
+    const result = await gqlPost(JSON.stringify([{
+      query: `query {
+        user(login: "${channelName}") {
+          videos(first: 100, type: ARCHIVE, sort: TIME${paginationArg}) {
+            edges {
+              cursor
+              node {
+                id title
+                createdAt
+                lengthSeconds
+                viewCount
+                thumbnailURLs(width: 480, height: 272)
+                game { name }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
+        }
+      }`
+    }]));
+    const edges = result?.[0]?.data?.user?.videos?.edges ?? [];
+    let reachedOld = false;
+    for (const edge of edges) {
+      const node = edge?.node;
+      if (!node) continue;
+      const createdAtMs = new Date(node.createdAt).getTime();
+      if (createdAtMs <= sinceMs) {
+        reachedOld = true;
+        break;
+      }
+      const ts = Math.floor(createdAtMs / 1e3);
+      const d = new Date(createdAtMs);
+      newEntries.push({
+        id: `v${node.id}`,
+        title: node.title ?? `VOD ${node.id}`,
+        url: `https://www.twitch.tv/videos/${node.id}`,
+        webpage_url: `https://www.twitch.tv/videos/${node.id}`,
+        thumbnail: node.thumbnailURLs?.[0] ?? null,
+        duration: node.lengthSeconds ?? null,
+        view_count: node.viewCount ?? null,
+        timestamp: ts,
+        upload_date: `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`,
+        ie_key: "TwitchVod",
+        _type: "url"
+      });
+    }
+    if (reachedOld || !result?.[0]?.data?.user?.videos?.pageInfo?.hasNextPage || edges.length === 0) break;
+    cursor = edges[edges.length - 1]?.cursor ?? null;
+    if (!cursor) break;
+  }
+  return newEntries;
+}
+electron.ipcMain.handle("fetch-twitch-delta", async (_e, channelName, type) => {
+  const cacheKey = `${channelName.toLowerCase()}:${type}`;
+  const all = store.get("twitchCache");
+  const cached = all[cacheKey];
+  if (!cached) {
+    return { success: false, reason: "no_cache" };
+  }
+  const since = cached.lastDeltaCheckedAt ?? cached.fetchedAt;
+  const nowSec = Math.floor(Date.now() / 1e3);
+  const ageSec = nowSec - Math.floor(since / 1e3);
+  if (ageSec < 60) {
+    return { success: true, newEntries: [], alreadyFresh: true };
+  }
+  console.log(`[twitch-delta] ${cacheKey}: checking new content since ${new Date(since).toISOString()} (${Math.round(ageSec / 60)}min ago)`);
+  try {
+    const newEntries = type === "clips" ? await fetchGqlClipsDelta(channelName, Math.floor(since / 1e3)) : await fetchGqlVodsDelta(channelName, Math.floor(since / 1e3));
+    console.log(`[twitch-delta] ${cacheKey}: found ${newEntries.length} new entries`);
+    const nowMs = Date.now();
+    store.set("twitchCache", {
+      ...store.get("twitchCache"),
+      [cacheKey]: { ...cached, lastDeltaCheckedAt: nowMs }
+    });
+    if (newEntries.length > 0) {
+      const existingEntries = hotCache.get(cacheKey)?.entries ?? cached.entries;
+      const existingIds = new Set(existingEntries.map((e) => e.id));
+      const truly_new = newEntries.filter((e) => !existingIds.has(e.id));
+      if (truly_new.length > 0) {
+        const merged = [...truly_new, ...existingEntries];
+        hotCache.set(cacheKey, { entries: merged, fetchedAt: cached.fetchedAt });
+        store.set("twitchCache", {
+          ...store.get("twitchCache"),
+          [cacheKey]: { ...cached, entries: merged, lastDeltaCheckedAt: nowMs }
+        });
+      }
+      return { success: true, newEntries: truly_new, deltaCheckedAt: nowMs };
+    }
+    return { success: true, newEntries: [], deltaCheckedAt: nowMs };
+  } catch (e) {
+    console.error(`[twitch-delta] ${cacheKey} error:`, String(e));
+    return { success: false, reason: String(e) };
+  }
+});
 function fetchYtDlpEntries(url) {
   return new Promise((resolve, reject) => {
     const proc = child_process.spawn(
@@ -868,7 +1064,7 @@ function fetchYtDlpEntries(url) {
   });
 }
 electron.ipcMain.handle("fetch-twitch-channel", async (_e, channelName, type, refresh = false) => {
-  const cacheKey = `${channelName}:${type}`;
+  const cacheKey = `${channelName.toLowerCase()}:${type}`;
   if (!refresh) {
     const cached = getCachedChannel(cacheKey);
     if (cached) {

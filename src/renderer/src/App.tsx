@@ -891,8 +891,10 @@ declare global {
       fetchVideoInfo: (url: string) => Promise<{ success: boolean; data?: VideoInfo; error?: string }>
       fetchPlaylistInfo: (url: string) => Promise<{ success: boolean; entries?: PlaylistEntry[]; error?: string }>
       fetchTwitchChannel: (channelName: string, type: 'vods' | 'clips', refresh?: boolean) => Promise<{ success: boolean; entries?: PlaylistEntry[]; fromCache?: boolean; pinned?: boolean; fetchedAt?: number; error?: string }>
+      fetchTwitchDelta: (channelName: string, type: 'vods' | 'clips') => Promise<{ success: boolean; newEntries?: PlaylistEntry[]; alreadyFresh?: boolean; deltaCheckedAt?: number; reason?: string }>
       getTwitchCacheMeta: (channelName: string) => Promise<{ vods: { fetchedAt: number; pinned: boolean } | null; clips: { fetchedAt: number; pinned: boolean } | null }>
       setTwitchChannelPin: (channelName: string, pinned: boolean) => Promise<{ success: boolean }>
+      getTwitchPinnedChannels: () => Promise<string[]>
       startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number }) => Promise<{ success: boolean; error?: string }>
       cancelDownload: (id: string) => Promise<{ success: boolean }>
       openFolder: (path: string) => Promise<void>
@@ -1012,7 +1014,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
           </button>
         )}
         <div className="sb-status-row"><span className="sb-dot"/>{!collapsed && <span className="sb-ready">{t.status_ready}</span>}</div>
-        {!collapsed && <div className="sb-version">v1.1.1</div>}
+        {!collapsed && <div className="sb-version">v1.1.2</div>}
       </div>
     </aside>
   )
@@ -1218,6 +1220,131 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, init
   )
 }
 
+// ═══════════════════════ PINNED STREAMERS PANEL ═══════════════════════
+
+function PinnedStreamersPanel({ t, onSelect }: { t: Translations; onSelect: (login: string) => void }) {
+  const [pins, setPins] = useState<string[]>([])
+  const [liveSet, setLiveSet] = useState<Set<string>>(new Set())
+  const [avatars, setAvatars] = useState<Record<string, string>>({})
+
+  // Drag state
+  const dragIndexRef = useRef<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
+
+  const fetchAvatars = async (logins: string[]) => {
+    if (!logins.length) return
+    try {
+      const res = await fetch('https://gql.twitch.tv/gql', {
+        method: 'POST',
+        headers: { 'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko', 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ query: `query{users(logins:${JSON.stringify(logins)}){login profileImageURL(width:70)}}` }])
+      })
+      const data = await res.json()
+      const users: { login: string; profileImageURL: string }[] = data?.[0]?.data?.users ?? []
+      if (users.length) {
+        const map: Record<string, string> = {}
+        users.forEach(u => { map[u.login.toLowerCase()] = u.profileImageURL })
+        setAvatars(prev => ({ ...prev, ...map }))
+      }
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    const init = async () => {
+      const rawPins = await window.api?.getTwitchPinnedChannels().catch(() => [] as string[]) ?? []
+      // Load saved order
+      const state = await window.api?.getAppState().catch(() => ({} as any)) ?? {}
+      const savedOrder: string[] = (state as any).pinnedStreamersOrder ?? []
+      // Apply saved order: keep only pins that are still pinned, append any new ones
+      const ordered = [
+        ...savedOrder.filter(l => rawPins.includes(l)),
+        ...rawPins.filter(l => !savedOrder.includes(l))
+      ]
+      setPins(ordered)
+      fetchAvatars(ordered)
+    }
+    init()
+    window.api?.fetchTwitchFollowedLive().then(r => {
+      if (r.success && r.streams) setLiveSet(new Set(r.streams.map(s => s.login)))
+    }).catch(() => {})
+  }, [])
+
+  const saveOrder = (ordered: string[]) => {
+    window.api?.saveAppState({ pinnedStreamersOrder: ordered } as any).catch(() => {})
+  }
+
+  const unpin = async (login: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = pins.filter(l => l !== login)
+    setPins(next)
+    saveOrder(next)
+    await window.api?.setTwitchChannelPin(login, false)
+  }
+
+  // Drag handlers
+  const onDragStart = (index: number) => { dragIndexRef.current = index }
+  const onDragEnter = (index: number) => { setDragOver(index) }
+  const onDragEnd = () => {
+    const from = dragIndexRef.current
+    const to = dragOver
+    if (from !== null && to !== null && from !== to) {
+      const next = [...pins]
+      const [item] = next.splice(from, 1)
+      next.splice(to, 0, item)
+      setPins(next)
+      saveOrder(next)
+    }
+    dragIndexRef.current = null
+    setDragOver(null)
+  }
+
+  if (pins.length === 0) return null
+
+  return (
+    <div className="pinned-panel">
+      <div className="pinned-panel-head">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" opacity="0.7">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+        </svg>
+        <span className="pinned-panel-title">{t.pinned_streamers_title}</span>
+      </div>
+      <div className="pinned-panel-list">
+        {pins.map((login, index) => {
+          const isLive = liveSet.has(login)
+          const avatar = avatars[login.toLowerCase()]
+          return (
+            <div
+              key={login}
+              className={`pinned-chip${isLive ? ' pinned-chip-live' : ''}${dragOver === index ? ' pinned-chip-drag-over' : ''}`}
+              draggable
+              onDragStart={() => onDragStart(index)}
+              onDragEnter={() => onDragEnter(index)}
+              onDragOver={e => e.preventDefault()}
+              onDragEnd={onDragEnd}
+            >
+              <button className="pinned-chip-inner" onClick={() => onSelect(login)}>
+                {avatar
+                  ? <img src={avatar} className="pinned-avatar" alt="" draggable={false}/>
+                  : <div className="pinned-avatar pinned-avatar-ph">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.4"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
+                    </div>
+                }
+                {isLive && <span className="pinned-live-dot"/>}
+                <span className="pinned-chip-name">{login}</span>
+              </button>
+              <button className="pinned-chip-unpin" onClick={e => unpin(login, e)} title="Unpin">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════════════ TWITCH CHANNEL BROWSER ═══════════════════════
 
 interface TwitchSelected { entry: PlaylistEntry; url: string; tab: 'vods'|'clips' }
@@ -1258,10 +1385,12 @@ function fmtDateYMD(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
+function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti, onPinToggle, onBack }: {
   channelName: string; t: Translations
   onSelect: (entry: PlaylistEntry, url: string) => void
   onDownloadMulti: (items: TwitchSelected[]) => void
+  onPinToggle?: () => void
+  onBack?: () => void
 }) {
   const [tab, setTab] = useState<'vods'|'clips'>('vods')
   const [allEntries, setAllEntries] = useState<Record<string, PlaylistEntry[]>>({ vods:[], clips:[] })
@@ -1270,6 +1399,8 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   const [fetchedAt, setFetchedAt] = useState<Record<string, number | null>>({ vods: null, clips: null })
   const [pinned, setPinned] = useState(false)
   const [refreshingTab, setRefreshingTab] = useState<'vods'|'clips'|null>(null)
+  const [bgRefreshingTab, setBgRefreshingTab] = useState<'vods'|'clips'|null>(null)
+  const [deltaLoadingTab, setDeltaLoadingTab] = useState<'vods'|'clips'|null>(null)
   const loadedRef = useRef<Record<string,boolean>>({})
   // Счётчик поколений: при смене канала инкрементируется — старые ответы игнорируются
   const genRef = useRef(0)
@@ -1281,6 +1412,13 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   const [dateTo, setDateTo] = useState('')
   const [dateExact, setDateExact] = useState('')
   const [showDateFilter, setShowDateFilter] = useState(false)
+  const [sortOrder, setSortOrder] = useState<Record<'vods'|'clips', string>>({ vods: 'date-desc', clips: 'date-desc' })
+
+  useEffect(() => {
+    loadState().then(s => {
+      if (s.twitchSortOrder) setSortOrder(s.twitchSortOrder)
+    }).catch(() => {})
+  }, [])
 
   const load = async (type: 'vods'|'clips', forceRefresh = false) => {
     if (loadedRef.current[type] && !forceRefresh) return
@@ -1293,32 +1431,83 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
       setLoadingTab(type)
     }
 
+    // ── Phase 1: serve cached entries instantly ───────────────────────────
     const r = await window.api?.fetchTwitchChannel(channelName, type, forceRefresh)
     if (genRef.current !== myGen) return
 
     if (r?.success && r.entries) {
-      setAllEntries(p => ({...p, [type]: r.entries}))
+      setAllEntries(p => ({...p, [type]: r.entries!.filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)}))
       setFromCache(p => ({...p, [type]: !!r.fromCache}))
       if (r.fetchedAt) setFetchedAt(p => ({...p, [type]: r.fetchedAt!}))
-      // NOTE: we do NOT set pinned from fetchTwitchChannel response —
-      // pin state is managed exclusively by getTwitchCacheMeta + togglePin
-      // to avoid race conditions when switching channels.
-
-      // If result came from cache, silently refresh in background
-      if (r.fromCache && !forceRefresh) {
-        window.api?.fetchTwitchChannel(channelName, type, true).then(fresh => {
-          if (genRef.current !== myGen) return
-          if (fresh?.success && fresh.entries) {
-            setAllEntries(p => ({...p, [type]: fresh.entries}))
-            setFromCache(p => ({...p, [type]: false}))
-            if (fresh.fetchedAt) setFetchedAt(p => ({...p, [type]: fresh.fetchedAt!}))
-          }
-        }).catch(() => {})
-      }
     }
 
     setLoadingTab(null)
-    setRefreshingTab(null)
+    if (!forceRefresh) setRefreshingTab(null)
+
+    if (!r?.success || !r.entries) {
+      setRefreshingTab(null)
+      return
+    }
+
+    // ── Phase 2: delta check (GQL-only, fast) ────────────────────────────
+    // Only run if we just served from cache (no point in delta after full refresh)
+    if (r.fromCache && !forceRefresh) {
+      setDeltaLoadingTab(type)
+      try {
+        const delta = await window.api?.fetchTwitchDelta(channelName, type)
+        if (genRef.current !== myGen) return
+
+        if (delta?.success && delta.newEntries && delta.newEntries.length > 0) {
+          // Prepend new entries to what we already have
+          setAllEntries(p => {
+            const existing = p[type] ?? []
+            const existingIds = new Set(existing.map(e => e.id))
+            const truly_new = delta.newEntries!.filter(e => !existingIds.has(e.id))
+            if (truly_new.length === 0) return p
+            return { ...p, [type]: [...truly_new, ...existing] }
+          })
+          setFromCache(p => ({...p, [type]: false}))
+        }
+      } catch { /* delta is best-effort */ }
+      if (genRef.current === myGen) setDeltaLoadingTab(null)
+
+      // ── Phase 3: full background refresh (yt-dlp, slow) ─────────────────
+      // Runs silently — user already sees Phase 1 + 2 data
+      setBgRefreshingTab(type)
+      window.api?.fetchTwitchChannel(channelName, type, true).then(fresh => {
+        if (genRef.current !== myGen) return
+        if (fresh?.success && fresh.entries && fresh.entries.length > 0) {
+          setAllEntries(p => {
+            const deduped = fresh.entries!.filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
+            // Never replace with a smaller/empty list — prevents flicker when bg fetch returns partial data
+            if (deduped.length < (p[type]?.length ?? 0)) return p
+            return {...p, [type]: deduped}
+          })
+          setFromCache(p => ({...p, [type]: false}))
+          if (fresh.fetchedAt) setFetchedAt(p => ({...p, [type]: fresh.fetchedAt!}))
+        }
+      }).catch(() => {}).finally(() => {
+        if (genRef.current === myGen) setBgRefreshingTab(null)
+      })
+    } else if (forceRefresh) {
+      // forceRefresh path: phase 2 skipped, go straight to phase 3
+      setBgRefreshingTab(type)
+      setRefreshingTab(null)
+      window.api?.fetchTwitchChannel(channelName, type, true).then(fresh => {
+        if (genRef.current !== myGen) return
+        if (fresh?.success && fresh.entries && fresh.entries.length > 0) {
+          setAllEntries(p => {
+            const deduped = fresh.entries!.filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
+            if (deduped.length < (p[type]?.length ?? 0)) return p
+            return {...p, [type]: deduped}
+          })
+          setFromCache(p => ({...p, [type]: false}))
+          if (fresh.fetchedAt) setFetchedAt(p => ({...p, [type]: fresh.fetchedAt!}))
+        }
+      }).catch(() => {}).finally(() => {
+        if (genRef.current === myGen) setBgRefreshingTab(null)
+      })
+    }
   }
 
   // Toggle pin for this channel — persists across sessions
@@ -1326,6 +1515,7 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
     const next = !pinned
     setPinned(next)
     await window.api?.setTwitchChannelPin(channelName, next)
+    onPinToggle?.()
   }
 
   useEffect(() => {
@@ -1338,6 +1528,7 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
     setPinned(false)
     setLoadingTab(null)
     setRefreshingTab(null)
+    setDeltaLoadingTab(null)
     setSearchQuery('')
     setDateFrom('')
     setDateTo('')
@@ -1357,6 +1548,7 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
   const switchTab = (type: 'vods'|'clips') => { setTab(type); load(type) }
   const loading = loadingTab !== null
   const refreshing = refreshingTab === tab
+  const bgRefreshing = bgRefreshingTab === tab
 
   const toggleSelect = (entry: PlaylistEntry, url: string) => {
     setSelected(p => {
@@ -1383,9 +1575,43 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
     return true
   }) : afterSearch
 
+  // Deduplicate by id before sorting (prevents React key collision bugs)
+  const uniqueEntries = entries.filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i)
+
+  // Sort entries
+  const sortedEntries = [...uniqueEntries].sort((a, b) => {
+    const sort = sortOrder[tab]
+    if (sort === 'date-desc' || sort === 'date-asc') {
+      const da = entryDate(a)?.getTime() ?? 0
+      const db = entryDate(b)?.getTime() ?? 0
+      return sort === 'date-desc' ? db - da : da - db
+    }
+    if (sort === 'title-asc' || sort === 'title-desc') {
+      const cmp = (a.title ?? '').localeCompare(b.title ?? '', undefined, { sensitivity: 'base' })
+      return sort === 'title-asc' ? cmp : -cmp
+    }
+    if (sort === 'duration-desc' || sort === 'duration-asc') {
+      const da = (a as any).duration ?? 0
+      const db = (b as any).duration ?? 0
+      return sort === 'duration-desc' ? db - da : da - db
+    }
+    if (sort === 'views-desc') {
+      const va = (a as any).view_count ?? 0
+      const vb = (b as any).view_count ?? 0
+      return vb - va
+    }
+    return 0
+  })
+
   return (
     <div className="twitch-browser">
       <div className="twitch-browser-head">
+        {onBack && (
+          <button className="twitch-back-btn" onClick={onBack}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polyline points="15 18 9 12 15 6"/></svg>
+            {t.twitch_back ?? 'Back'}
+          </button>
+        )}
         <div className="twitch-channel-name">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="#9146FF"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z"/></svg>
           <span>{channelName}</span>
@@ -1406,18 +1632,27 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
           <span>{pinned ? t.twitch_pinned : t.twitch_pin}</span>
         </button>
         <button
-          className={`twitch-refresh-btn${refreshing ? ' twitch-refresh-spin' : ''}${fromCache[tab] ? ' twitch-refresh-cached' : ''}`}
+          className={`twitch-refresh-btn${refreshing ? ' twitch-refresh-spin' : ''}${bgRefreshing ? ' twitch-refresh-bg' : ''}${fromCache[tab] && !refreshing && !bgRefreshing ? ' twitch-refresh-cached' : ''}`}
           onClick={() => load(tab, true)}
           disabled={loading || refreshing}
           title={
-            fromCache[tab] && fetchedAt[tab]
+            refreshing || bgRefreshing
+              ? 'Refreshing…'
+              : fromCache[tab] && fetchedAt[tab]
               ? `Cached ${formatCacheAge(fetchedAt[tab]!)} — click to refresh`
               : 'Refresh'
           }
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          {fromCache[tab] && !refreshing && <span className="twitch-cache-dot" title="From cache"/>}
+          {fromCache[tab] && !refreshing && !bgRefreshing && <span className="twitch-cache-dot" title="From cache"/>}
+          {bgRefreshing && <span className="twitch-bg-dot" title="Background refresh…"/>}
         </button>
+        {deltaLoadingTab === tab && (
+          <div className="twitch-delta-indicator" title="Checking for new content...">
+            <span className="spin twitch-delta-spin"/>
+            <span className="twitch-delta-label">{t.twitch_delta_check}</span>
+          </div>
+        )}
         <div className="twitch-tabs">
           <button className={`twitch-tab ${tab==='vods'?'twitch-tab-on':''}`} onClick={() => switchTab('vods')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -1495,6 +1730,31 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
         )}
       </div>
 
+      {/* Sort control */}
+      <div className="twitch-sort-bar">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
+        {([
+          { value: 'date-desc', label: '↓ Новые' },
+          { value: 'date-asc',  label: '↑ Старые' },
+          { value: 'title-asc', label: 'А–Я' },
+          { value: 'title-desc',label: 'Я–А' },
+          { value: 'duration-desc', label: '↓ Длинные' },
+          { value: 'duration-asc',  label: '↑ Короткие' },
+          ...(tab === 'clips' ? [{ value: 'views-desc', label: '↓ Просмотры' }] : []),
+        ] as {value:string;label:string}[]).map(opt => (
+          <button
+            key={opt.value}
+            className={`twitch-sort-btn${sortOrder[tab] === opt.value ? ' twitch-sort-active' : ''}`}
+            onClick={() => setSortOrder(p => {
+                const next = { ...p, [tab]: opt.value }
+                saveState({ twitchSortOrder: next })
+                return next
+              })}
+          >{opt.label}</button>
+        ))}
+        <span className="twitch-sort-count">{sortedEntries.length}</span>
+      </div>
+
       {selectedList.length > 0 && (
         <div className="twitch-selection-bar">
           <span className="twitch-sel-count">
@@ -1516,7 +1776,7 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
       <div className="twitch-list">
         {loading && <div className="twitch-loading"><span className="spin"/><span>{t.twitch_loading}</span></div>}
         {!loading && entries.length===0 && loadedRef.current[tab] && <div className="twitch-empty">{t.twitch_empty}</div>}
-        {entries.map(entry => {
+        {sortedEntries.map(entry => {
           const videoUrl = entry.url || entry.webpage_url || `https://www.twitch.tv/videos/${entry.id}`
           const isSelected = !!selected[entry.id]
           return (
@@ -1531,9 +1791,17 @@ function TwitchChannelBrowser({ channelName, t, onSelect, onDownloadMulti }: {
                 </div>
                 <div className="twitch-entry-meta">
                   <span className="twitch-entry-title">{entry.title}</span>
-                  {entryDate(entry) && (
-                    <span className="twitch-entry-date">{fmtDateYMD(entryDate(entry)!)}</span>
-                  )}
+                  <div className="twitch-entry-row">
+                    {entryDate(entry) && (
+                      <span className="twitch-entry-date">{fmtDateYMD(entryDate(entry)!)}</span>
+                    )}
+                    {(entry as any).view_count ? (
+                      <span className="twitch-entry-views">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        {formatViews((entry as any).view_count, t)}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <svg className="twitch-entry-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
@@ -2669,6 +2937,7 @@ export default function App() {
   const [twitchLoggedIn, setTwitchLoggedIn] = useState(false)
   const [twitchExtractState, setTwitchExtractState] = useState<'idle'|'busy'|'ok'|'fail'>('idle')
   const [twitchExtractError, setTwitchExtractError] = useState('')
+  const [pinnedKey, setPinnedKey] = useState(0)
   const urlRef = useRef('')
   const t = translations[lang]
 
@@ -2931,9 +3200,18 @@ export default function App() {
                 </div>
               )}
 
+              {/* Pinned streamers quick-access (Twitch only) */}
+              {platform === 'twitch' && !twitchChannel && (
+                <PinnedStreamersPanel key={pinnedKey} t={t} onSelect={login => {
+                  setTwitchChannel(login)
+                  setVideoInfo(null)
+                  setPlaylist(null)
+                }}/>
+              )}
+
               {/* Twitch channel browser */}
               {twitchChannel && (
-                <TwitchChannelBrowser channelName={twitchChannel} t={t} onSelect={handleTwitchSelect} onDownloadMulti={handleTwitchMulti}/>
+                <TwitchChannelBrowser channelName={twitchChannel} t={t} onSelect={handleTwitchSelect} onDownloadMulti={handleTwitchMulti} onPinToggle={() => setPinnedKey(k => k + 1)} onBack={() => { setTwitchChannel(null); setFetchErr('') }}/>
               )}
 
               {(videoInfo || fetching) && (

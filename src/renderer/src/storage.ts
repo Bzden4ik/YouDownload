@@ -15,6 +15,7 @@ export interface PersistedState {
   sidebarCollapsed?: boolean
   playerPanelWidth?: number
   playerPanelHeight?: number
+  twitchSortOrder?: Record<'vods'|'clips', string>
 }
 
 export interface PersistedDownload {

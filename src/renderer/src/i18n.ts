@@ -19,6 +19,7 @@ export const translations = {
     twitch_pinned:        'Pinned',
     twitch_pin_hint:      'Remember forever (no expiry)',
     twitch_pinned_hint:   'Cached forever — click to use 7-day TTL instead',
+    twitch_delta_check: 'checking new...',
     twitch_loading: 'Loading...',
     twitch_empty:   'Nothing found',
     twitch_select:  'Select a video to download',
@@ -170,6 +171,10 @@ export const translations = {
     flp_fav:        'Add to favorites',
     flp_unfav:      'Remove from favorites',
     flp_offline:    'Offline',
+    pinned_streamers_title: 'Pinned streamers',
+    pinned_streamers_empty: 'No pinned streamers yet. Pin a streamer using the ★ button in the Live panel.',
+    pinned_streamers_open:  'Browse VODs',
+    twitch_back:            'Back',
   },
 
   ru: {
@@ -190,6 +195,7 @@ export const translations = {
     twitch_pinned:        'Закреплено',
     twitch_pin_hint:      'Запомнить навсегда (без срока)',
     twitch_pinned_hint:   'Кэш навсегда — нажми чтобы вернуть 7-дневный срок',
+    twitch_delta_check: 'проверяем новое...',
     twitch_loading: 'Загружаю...',
     twitch_empty:   'Ничего не найдено',
     twitch_select:  'Выберите видео для скачивания',
@@ -341,6 +347,10 @@ export const translations = {
     flp_fav:        'В избранное',
     flp_unfav:      'Убрать из избранного',
     flp_offline:    'Оффлайн',
+    pinned_streamers_title: 'Закреплённые стримеры',
+    pinned_streamers_empty: 'Нет закреплённых стримеров. Закрепи стримера кнопкой ★ в панели Эфира.',
+    pinned_streamers_open:  'Смотреть VOD',
+    twitch_back:            'Назад',
   }
 } as const
 

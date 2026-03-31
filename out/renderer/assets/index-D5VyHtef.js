@@ -6984,6 +6984,7 @@ const translations = {
     twitch_pinned: "Pinned",
     twitch_pin_hint: "Remember forever (no expiry)",
     twitch_pinned_hint: "Cached forever — click to use 7-day TTL instead",
+    twitch_delta_check: "checking new...",
     twitch_loading: "Loading...",
     twitch_empty: "Nothing found",
     twitch_select: "Select a video to download",
@@ -7125,7 +7126,11 @@ const translations = {
     stream_back: "Back",
     flp_fav: "Add to favorites",
     flp_unfav: "Remove from favorites",
-    flp_offline: "Offline"
+    flp_offline: "Offline",
+    pinned_streamers_title: "Pinned streamers",
+    pinned_streamers_empty: "No pinned streamers yet. Pin a streamer using the ★ button in the Live panel.",
+    pinned_streamers_open: "Browse VODs",
+    twitch_back: "Back"
   },
   ru: {
     // Sidebar
@@ -7144,6 +7149,7 @@ const translations = {
     twitch_pinned: "Закреплено",
     twitch_pin_hint: "Запомнить навсегда (без срока)",
     twitch_pinned_hint: "Кэш навсегда — нажми чтобы вернуть 7-дневный срок",
+    twitch_delta_check: "проверяем новое...",
     twitch_loading: "Загружаю...",
     twitch_empty: "Ничего не найдено",
     twitch_select: "Выберите видео для скачивания",
@@ -7285,7 +7291,11 @@ const translations = {
     stream_back: "Назад",
     flp_fav: "В избранное",
     flp_unfav: "Убрать из избранного",
-    flp_offline: "Оффлайн"
+    flp_offline: "Оффлайн",
+    pinned_streamers_title: "Закреплённые стримеры",
+    pinned_streamers_empty: "Нет закреплённых стримеров. Закрепи стримера кнопкой ★ в панели Эфира.",
+    pinned_streamers_open: "Смотреть VOD",
+    twitch_back: "Назад"
   }
 };
 async function loadStreamSessions() {
@@ -8197,7 +8207,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-dot" }),
         !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-ready", children: t2.status_ready })
       ] }),
-      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.1.1" })
+      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.1.2" })
     ] })
   ] });
 }
@@ -8420,6 +8430,115 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t: t2, initType, 
     ] })
   ] });
 }
+function PinnedStreamersPanel({ t: t2, onSelect }) {
+  const [pins, setPins] = reactExports.useState([]);
+  const [liveSet, setLiveSet] = reactExports.useState(/* @__PURE__ */ new Set());
+  const [avatars, setAvatars] = reactExports.useState({});
+  const dragIndexRef = reactExports.useRef(null);
+  const [dragOver, setDragOver] = reactExports.useState(null);
+  const fetchAvatars = async (logins) => {
+    if (!logins.length) return;
+    try {
+      const res = await fetch("https://gql.twitch.tv/gql", {
+        method: "POST",
+        headers: { "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko", "Content-Type": "application/json" },
+        body: JSON.stringify([{ query: `query{users(logins:${JSON.stringify(logins)}){login profileImageURL(width:70)}}` }])
+      });
+      const data = await res.json();
+      const users = data?.[0]?.data?.users ?? [];
+      if (users.length) {
+        const map = {};
+        users.forEach((u2) => {
+          map[u2.login.toLowerCase()] = u2.profileImageURL;
+        });
+        setAvatars((prev) => ({ ...prev, ...map }));
+      }
+    } catch {
+    }
+  };
+  reactExports.useEffect(() => {
+    const init = async () => {
+      const rawPins = await window.api?.getTwitchPinnedChannels().catch(() => []) ?? [];
+      const state = await window.api?.getAppState().catch(() => ({})) ?? {};
+      const savedOrder = state.pinnedStreamersOrder ?? [];
+      const ordered = [
+        ...savedOrder.filter((l2) => rawPins.includes(l2)),
+        ...rawPins.filter((l2) => !savedOrder.includes(l2))
+      ];
+      setPins(ordered);
+      fetchAvatars(ordered);
+    };
+    init();
+    window.api?.fetchTwitchFollowedLive().then((r2) => {
+      if (r2.success && r2.streams) setLiveSet(new Set(r2.streams.map((s) => s.login)));
+    }).catch(() => {
+    });
+  }, []);
+  const saveOrder = (ordered) => {
+    window.api?.saveAppState({ pinnedStreamersOrder: ordered }).catch(() => {
+    });
+  };
+  const unpin = async (login, e) => {
+    e.stopPropagation();
+    const next = pins.filter((l2) => l2 !== login);
+    setPins(next);
+    saveOrder(next);
+    await window.api?.setTwitchChannelPin(login, false);
+  };
+  const onDragStart = (index) => {
+    dragIndexRef.current = index;
+  };
+  const onDragEnter = (index) => {
+    setDragOver(index);
+  };
+  const onDragEnd = () => {
+    const from = dragIndexRef.current;
+    const to = dragOver;
+    if (from !== null && to !== null && from !== to) {
+      const next = [...pins];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      setPins(next);
+      saveOrder(next);
+    }
+    dragIndexRef.current = null;
+    setDragOver(null);
+  };
+  if (pins.length === 0) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "pinned-panel", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "pinned-panel-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "currentColor", opacity: "0.7", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pinned-panel-title", children: t2.pinned_streamers_title })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "pinned-panel-list", children: pins.map((login, index) => {
+      const isLive = liveSet.has(login);
+      const avatar = avatars[login.toLowerCase()];
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: `pinned-chip${isLive ? " pinned-chip-live" : ""}${dragOver === index ? " pinned-chip-drag-over" : ""}`,
+          draggable: true,
+          onDragStart: () => onDragStart(index),
+          onDragEnter: () => onDragEnter(index),
+          onDragOver: (e) => e.preventDefault(),
+          onDragEnd,
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "pinned-chip-inner", onClick: () => onSelect(login), children: [
+              avatar ? /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: avatar, className: "pinned-avatar", alt: "", draggable: false }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "pinned-avatar pinned-avatar-ph", children: /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "currentColor", opacity: "0.4", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }) }),
+              isLive && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pinned-live-dot" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pinned-chip-name", children: login })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "pinned-chip-unpin", onClick: (e) => unpin(login, e), title: "Unpin", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "9", height: "9", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "18", y1: "6", x2: "6", y2: "18" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "6", y1: "6", x2: "18", y2: "18" })
+            ] }) })
+          ]
+        },
+        login
+      );
+    }) })
+  ] });
+}
 function entryDate(entry) {
   const e = entry;
   for (const key of ["timestamp", "release_timestamp", "epoch", "modified_timestamp"]) {
@@ -8443,7 +8562,7 @@ function entryDate(entry) {
 function fmtDateYMD(d) {
   return d.toISOString().slice(0, 10);
 }
-function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti }) {
+function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti, onPinToggle, onBack }) {
   const [tab, setTab] = reactExports.useState("vods");
   const [allEntries, setAllEntries] = reactExports.useState({ vods: [], clips: [] });
   const [loadingTab, setLoadingTab] = reactExports.useState(null);
@@ -8451,6 +8570,8 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
   const [fetchedAt, setFetchedAt] = reactExports.useState({ vods: null, clips: null });
   const [pinned, setPinned] = reactExports.useState(false);
   const [refreshingTab, setRefreshingTab] = reactExports.useState(null);
+  const [bgRefreshingTab, setBgRefreshingTab] = reactExports.useState(null);
+  const [deltaLoadingTab, setDeltaLoadingTab] = reactExports.useState(null);
   const loadedRef = reactExports.useRef({});
   const genRef = reactExports.useRef(0);
   const [selected, setSelected] = reactExports.useState({});
@@ -8460,6 +8581,13 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
   const [dateTo, setDateTo] = reactExports.useState("");
   const [dateExact, setDateExact] = reactExports.useState("");
   const [showDateFilter, setShowDateFilter] = reactExports.useState(false);
+  const [sortOrder, setSortOrder] = reactExports.useState({ vods: "date-desc", clips: "date-desc" });
+  reactExports.useEffect(() => {
+    loadState().then((s) => {
+      if (s.twitchSortOrder) setSortOrder(s.twitchSortOrder);
+    }).catch(() => {
+    });
+  }, []);
   const load = async (type, forceRefresh = false) => {
     if (loadedRef.current[type] && !forceRefresh) return;
     loadedRef.current[type] = true;
@@ -8472,28 +8600,75 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
     const r2 = await window.api?.fetchTwitchChannel(channelName, type, forceRefresh);
     if (genRef.current !== myGen) return;
     if (r2?.success && r2.entries) {
-      setAllEntries((p2) => ({ ...p2, [type]: r2.entries }));
+      setAllEntries((p2) => ({ ...p2, [type]: r2.entries.filter((e, i, arr) => arr.findIndex((x2) => x2.id === e.id) === i) }));
       setFromCache((p2) => ({ ...p2, [type]: !!r2.fromCache }));
       if (r2.fetchedAt) setFetchedAt((p2) => ({ ...p2, [type]: r2.fetchedAt }));
-      if (r2.fromCache && !forceRefresh) {
-        window.api?.fetchTwitchChannel(channelName, type, true).then((fresh) => {
-          if (genRef.current !== myGen) return;
-          if (fresh?.success && fresh.entries) {
-            setAllEntries((p2) => ({ ...p2, [type]: fresh.entries }));
-            setFromCache((p2) => ({ ...p2, [type]: false }));
-            if (fresh.fetchedAt) setFetchedAt((p2) => ({ ...p2, [type]: fresh.fetchedAt }));
-          }
-        }).catch(() => {
-        });
-      }
     }
     setLoadingTab(null);
-    setRefreshingTab(null);
+    if (!forceRefresh) setRefreshingTab(null);
+    if (!r2?.success || !r2.entries) {
+      setRefreshingTab(null);
+      return;
+    }
+    if (r2.fromCache && !forceRefresh) {
+      setDeltaLoadingTab(type);
+      try {
+        const delta = await window.api?.fetchTwitchDelta(channelName, type);
+        if (genRef.current !== myGen) return;
+        if (delta?.success && delta.newEntries && delta.newEntries.length > 0) {
+          setAllEntries((p2) => {
+            const existing = p2[type] ?? [];
+            const existingIds = new Set(existing.map((e) => e.id));
+            const truly_new = delta.newEntries.filter((e) => !existingIds.has(e.id));
+            if (truly_new.length === 0) return p2;
+            return { ...p2, [type]: [...truly_new, ...existing] };
+          });
+          setFromCache((p2) => ({ ...p2, [type]: false }));
+        }
+      } catch {
+      }
+      if (genRef.current === myGen) setDeltaLoadingTab(null);
+      setBgRefreshingTab(type);
+      window.api?.fetchTwitchChannel(channelName, type, true).then((fresh) => {
+        if (genRef.current !== myGen) return;
+        if (fresh?.success && fresh.entries && fresh.entries.length > 0) {
+          setAllEntries((p2) => {
+            const deduped = fresh.entries.filter((e, i, arr) => arr.findIndex((x2) => x2.id === e.id) === i);
+            if (deduped.length < (p2[type]?.length ?? 0)) return p2;
+            return { ...p2, [type]: deduped };
+          });
+          setFromCache((p2) => ({ ...p2, [type]: false }));
+          if (fresh.fetchedAt) setFetchedAt((p2) => ({ ...p2, [type]: fresh.fetchedAt }));
+        }
+      }).catch(() => {
+      }).finally(() => {
+        if (genRef.current === myGen) setBgRefreshingTab(null);
+      });
+    } else if (forceRefresh) {
+      setBgRefreshingTab(type);
+      setRefreshingTab(null);
+      window.api?.fetchTwitchChannel(channelName, type, true).then((fresh) => {
+        if (genRef.current !== myGen) return;
+        if (fresh?.success && fresh.entries && fresh.entries.length > 0) {
+          setAllEntries((p2) => {
+            const deduped = fresh.entries.filter((e, i, arr) => arr.findIndex((x2) => x2.id === e.id) === i);
+            if (deduped.length < (p2[type]?.length ?? 0)) return p2;
+            return { ...p2, [type]: deduped };
+          });
+          setFromCache((p2) => ({ ...p2, [type]: false }));
+          if (fresh.fetchedAt) setFetchedAt((p2) => ({ ...p2, [type]: fresh.fetchedAt }));
+        }
+      }).catch(() => {
+      }).finally(() => {
+        if (genRef.current === myGen) setBgRefreshingTab(null);
+      });
+    }
   };
   const togglePin = async () => {
     const next = !pinned;
     setPinned(next);
     await window.api?.setTwitchChannelPin(channelName, next);
+    onPinToggle?.();
   };
   reactExports.useEffect(() => {
     genRef.current++;
@@ -8504,6 +8679,7 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
     setPinned(false);
     setLoadingTab(null);
     setRefreshingTab(null);
+    setDeltaLoadingTab(null);
     setSearchQuery("");
     setDateFrom("");
     setDateTo("");
@@ -8525,6 +8701,7 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
   };
   const loading = loadingTab !== null;
   const refreshing = refreshingTab === tab;
+  const bgRefreshing = bgRefreshingTab === tab;
   const toggleSelect = (entry, url) => {
     setSelected((p2) => {
       if (p2[entry.id]) {
@@ -8547,8 +8724,36 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
     if (dateTo && ds > dateTo) return false;
     return true;
   }) : afterSearch;
+  const uniqueEntries = entries.filter((e, i, arr) => arr.findIndex((x2) => x2.id === e.id) === i);
+  const sortedEntries = [...uniqueEntries].sort((a, b) => {
+    const sort = sortOrder[tab];
+    if (sort === "date-desc" || sort === "date-asc") {
+      const da2 = entryDate(a)?.getTime() ?? 0;
+      const db2 = entryDate(b)?.getTime() ?? 0;
+      return sort === "date-desc" ? db2 - da2 : da2 - db2;
+    }
+    if (sort === "title-asc" || sort === "title-desc") {
+      const cmp = (a.title ?? "").localeCompare(b.title ?? "", void 0, { sensitivity: "base" });
+      return sort === "title-asc" ? cmp : -cmp;
+    }
+    if (sort === "duration-desc" || sort === "duration-asc") {
+      const da2 = a.duration ?? 0;
+      const db2 = b.duration ?? 0;
+      return sort === "duration-desc" ? db2 - da2 : da2 - db2;
+    }
+    if (sort === "views-desc") {
+      const va2 = a.view_count ?? 0;
+      const vb2 = b.view_count ?? 0;
+      return vb2 - va2;
+    }
+    return 0;
+  });
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-browser", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-browser-head", children: [
+      onBack && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "twitch-back-btn", onClick: onBack, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "15 18 9 12 15 6" }) }),
+        t2.twitch_back ?? "Back"
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-channel-name", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "#9146FF", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11.6 6H13v4.5h-1.4V6zm3.8 0H17v4.5h-1.4V6zM2.2 0L0 5.4V21h5.4v3h3l3-3h4.5L24 12.6V0H2.2zm20.4 11.7-3.6 3.6h-5.4l-3 3v-3H5.4V1.4h17.2v10.3z" }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: channelName })
@@ -8576,20 +8781,25 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
       /* @__PURE__ */ jsxRuntimeExports.jsxs(
         "button",
         {
-          className: `twitch-refresh-btn${refreshing ? " twitch-refresh-spin" : ""}${fromCache[tab] ? " twitch-refresh-cached" : ""}`,
+          className: `twitch-refresh-btn${refreshing ? " twitch-refresh-spin" : ""}${bgRefreshing ? " twitch-refresh-bg" : ""}${fromCache[tab] && !refreshing && !bgRefreshing ? " twitch-refresh-cached" : ""}`,
           onClick: () => load(tab, true),
           disabled: loading || refreshing,
-          title: fromCache[tab] && fetchedAt[tab] ? `Cached ${formatCacheAge(fetchedAt[tab])} — click to refresh` : "Refresh",
+          title: refreshing || bgRefreshing ? "Refreshing…" : fromCache[tab] && fetchedAt[tab] ? `Cached ${formatCacheAge(fetchedAt[tab])} — click to refresh` : "Refresh",
           children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "23 4 23 10 17 10" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "1 20 1 14 7 14" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" })
             ] }),
-            fromCache[tab] && !refreshing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-cache-dot", title: "From cache" })
+            fromCache[tab] && !refreshing && !bgRefreshing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-cache-dot", title: "From cache" }),
+            bgRefreshing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-bg-dot", title: "Background refresh…" })
           ]
         }
       ),
+      deltaLoadingTab === tab && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-delta-indicator", title: "Checking for new content...", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spin twitch-delta-spin" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-delta-label", children: t2.twitch_delta_check })
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-tabs", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `twitch-tab ${tab === "vods" ? "twitch-tab-on" : ""}`, onClick: () => switchTab("vods"), children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
@@ -8670,6 +8880,35 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
         }, children: t2.twitch_date_clear })
       ] })
     ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-sort-bar", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "3", y1: "6", x2: "21", y2: "6" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "6", y1: "12", x2: "18", y2: "12" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "9", y1: "18", x2: "15", y2: "18" })
+      ] }),
+      [
+        { value: "date-desc", label: "↓ Новые" },
+        { value: "date-asc", label: "↑ Старые" },
+        { value: "title-asc", label: "А–Я" },
+        { value: "title-desc", label: "Я–А" },
+        { value: "duration-desc", label: "↓ Длинные" },
+        { value: "duration-asc", label: "↑ Короткие" },
+        ...tab === "clips" ? [{ value: "views-desc", label: "↓ Просмотры" }] : []
+      ].map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: `twitch-sort-btn${sortOrder[tab] === opt.value ? " twitch-sort-active" : ""}`,
+          onClick: () => setSortOrder((p2) => {
+            const next = { ...p2, [tab]: opt.value };
+            saveState({ twitchSortOrder: next });
+            return next;
+          }),
+          children: opt.label
+        },
+        opt.value
+      )),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-sort-count", children: sortedEntries.length })
+    ] }),
     selectedList.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-selection-bar", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "twitch-sel-count", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "20 6 9 17 4 12" }) }),
@@ -8694,7 +8933,7 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.twitch_loading })
       ] }),
       !loading && entries.length === 0 && loadedRef.current[tab] && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "twitch-empty", children: t2.twitch_empty }),
-      entries.map((entry) => {
+      sortedEntries.map((entry) => {
         const videoUrl = entry.url || entry.webpage_url || `https://www.twitch.tv/videos/${entry.id}`;
         const isSelected = !!selected[entry.id];
         return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `twitch-entry ${isSelected ? "twitch-entry-selected" : ""}`, children: [
@@ -8706,7 +8945,16 @@ function TwitchChannelBrowser({ channelName, t: t2, onSelect, onDownloadMulti })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-entry-meta", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-title", children: entry.title }),
-              entryDate(entry) && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-date", children: fmtDateYMD(entryDate(entry)) })
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "twitch-entry-row", children: [
+                entryDate(entry) && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "twitch-entry-date", children: fmtDateYMD(entryDate(entry)) }),
+                entry.view_count ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "twitch-entry-views", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "10", height: "10", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" })
+                  ] }),
+                  formatViews(entry.view_count, t2)
+                ] }) : null
+              ] })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { className: "twitch-entry-arrow", width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsxRuntimeExports.jsx("polyline", { points: "9 18 15 12 9 6" }) })
           ] }),
@@ -9860,6 +10108,7 @@ function App() {
   const [twitchLoggedIn, setTwitchLoggedIn] = reactExports.useState(false);
   const [twitchExtractState, setTwitchExtractState] = reactExports.useState("idle");
   const [twitchExtractError, setTwitchExtractError] = reactExports.useState("");
+  const [pinnedKey, setPinnedKey] = reactExports.useState(0);
   const urlRef = reactExports.useRef("");
   const t2 = translations[lang];
   const toggleLang = () => {
@@ -10169,7 +10418,15 @@ function App() {
               /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "age-gate-hint", children: lang === "ru" ? "После входа вернись и нажми Fetch снова" : "After signing in, come back and press Fetch again" })
             ] })
           ] }),
-          twitchChannel && /* @__PURE__ */ jsxRuntimeExports.jsx(TwitchChannelBrowser, { channelName: twitchChannel, t: t2, onSelect: handleTwitchSelect, onDownloadMulti: handleTwitchMulti }),
+          platform === "twitch" && !twitchChannel && /* @__PURE__ */ jsxRuntimeExports.jsx(PinnedStreamersPanel, { t: t2, onSelect: (login) => {
+            setTwitchChannel(login);
+            setVideoInfo(null);
+            setPlaylist(null);
+          } }, pinnedKey),
+          twitchChannel && /* @__PURE__ */ jsxRuntimeExports.jsx(TwitchChannelBrowser, { channelName: twitchChannel, t: t2, onSelect: handleTwitchSelect, onDownloadMulti: handleTwitchMulti, onPinToggle: () => setPinnedKey((k2) => k2 + 1), onBack: () => {
+            setTwitchChannel(null);
+            setFetchErr("");
+          } }),
           (videoInfo || fetching) && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(VideoInfoCard, { info: videoInfo, loading: fetching, t: t2 }),
             (playlistLoading || playlist) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "playlist-banner", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "playlist-banner-left", children: [
