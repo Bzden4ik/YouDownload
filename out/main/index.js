@@ -1132,7 +1132,14 @@ electron.ipcMain.handle("fetch-playlist-info", async (_e, url) => {
 electron.ipcMain.handle("start-download", async (event, payload) => {
   if (!ytDlpWrap) return { success: false, error: "yt-dlp not initialized" };
   const s = store.get("settings");
-  const outDir = payload.downloadPath || s.downloadPath;
+  const baseDir = payload.downloadPath || s.downloadPath;
+  const saveToPlaylistFolder = payload.saveToPlaylistFolder || payload.url.includes("youtube.com") && payload.url.includes("/playlist") || payload.formatArgs.includes("--yes-playlist");
+  const outDir = saveToPlaylistFolder ? (() => {
+    const d = path.join(baseDir, "YouPlayList");
+    fs.mkdirSync(d, { recursive: true });
+    return d;
+  })() : baseDir;
+  const isYouTubePlaylist = payload.url.includes("youtube.com") && payload.url.includes("/playlist") || payload.formatArgs.includes("--yes-playlist");
   payload = { ...payload, url: normalizeVkUrl(payload.url) };
   let formatArgs = payload.formatArgs;
   if (payload.url.includes("music.youtube")) {
@@ -1166,7 +1173,9 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
     ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url, void 0, sslFallback),
     "-o",
     path.join(outDir, "%(title)s.%(ext)s"),
-    "--no-playlist",
+    "--windows-filenames",
+    "--no-part",
+    ...isYouTubePlaylist ? ["--yes-playlist"] : ["--no-playlist"],
     "--progress",
     "--newline"
   ];

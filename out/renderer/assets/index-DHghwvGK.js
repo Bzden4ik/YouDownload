@@ -7454,7 +7454,7 @@ function getFormatArgs(type, quality) {
     return map[quality] ?? map.mp3_best;
   }
   const q2 = quality;
-  return ["-f", `bestvideo[height<=${q2}]+bestaudio/bestvideo[height<=${q2}]+bestaudio[ext=m4a]/bestvideo+bestaudio`, "--merge-output-format", "mp4", "--remux-video", "mp4"];
+  return ["-f", `bestvideo[height<=${q2}]+bestaudio[ext=m4a]/bestvideo[height<=${q2}]+bestaudio/bestvideo+bestaudio`, "--merge-output-format", "mp4", "--postprocessor-args", "ffmpeg:-c:v copy -c:a aac"];
 }
 function getFormatLabel(type, quality) {
   if (type === "audio") {
@@ -8207,7 +8207,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-dot" }),
         !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sb-ready", children: t2.status_ready })
       ] }),
-      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.1.2" })
+      !collapsed && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sb-version", children: "v1.1.3" })
     ] })
   ] });
 }
@@ -9826,17 +9826,26 @@ function StreamView({ t: t2, downloadPath, persistedInput, persistedChannelName,
     const url = `https://www.twitch.tv/${channelName}`;
     const id2 = genId();
     const PADDING = 25;
-    let startSec, endSec, sectionArg;
+    let startSec, endSec;
+    let argsWithSection;
     if (direction === "back") {
       startSec = Math.max(0, markerPos - durSec);
       endSec = markerPos;
-      sectionArg = `*-${durSec + PADDING}`;
+      argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", `*-${durSec + PADDING}`];
     } else {
       startSec = markerPos;
       endSec = markerPos + durSec;
-      sectionArg = `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`;
+      const PREBUF = 8;
+      const adjStart = Math.max(0, startSec - PREBUF);
+      const trimOffset = startSec - adjStart;
+      argsWithSection = [
+        ...getTwitchFormatArgs("video", "source"),
+        "--download-sections",
+        `*${secsToTimestamp(adjStart)}-${secsToTimestamp(endSec)}`,
+        "--force-keyframes-at-cuts",
+        ...trimOffset > 0 ? ["--postprocessor-args", `ffmpeg:-ss ${trimOffset}`] : []
+      ];
     }
-    const argsWithSection = [...getTwitchFormatArgs("video", "source"), "--download-sections", sectionArg];
     onStartDownload({
       id: id2,
       url,
@@ -10281,7 +10290,14 @@ function App() {
     let sectionDuration;
     if (timeRange) {
       const endStr = timeRange.end >= 0 ? secsToTimestamp(timeRange.end) : "inf";
-      formatArgs = [...formatArgs, "--download-sections", `*${secsToTimestamp(timeRange.start)}-${endStr}`];
+      const TWITCH_PREBUFFER = isTwitch ? 8 : 0;
+      const adjustedStart = Math.max(0, timeRange.start - TWITCH_PREBUFFER);
+      const adjustedStartStr = secsToTimestamp(adjustedStart);
+      formatArgs = [...formatArgs, "--download-sections", `*${adjustedStartStr}-${endStr}`, "--force-keyframes-at-cuts"];
+      if (isTwitch && TWITCH_PREBUFFER > 0 && adjustedStart < timeRange.start) {
+        const trimOffset = timeRange.start - adjustedStart;
+        formatArgs = [...formatArgs, "--postprocessor-args", `ffmpeg:-ss ${trimOffset}`];
+      }
       sectionDuration = timeRange.end >= 0 ? timeRange.end - timeRange.start : (videoInfo.duration ?? 0) - timeRange.start;
     }
     const baseLabel = isTwitch ? getTwitchFormatLabel(type, quality) : getFormatLabel(type, quality);
@@ -10296,15 +10312,68 @@ function App() {
     if (!playlist || !window.api) return;
     const formatArgs = getFormatArgs(type, quality);
     const formatLabel = getFormatLabel(type, quality);
-    for (const entry of playlist) {
-      const id2 = genId();
-      const base = urlRef.current.includes("music.youtube") ? "https://music.youtube.com" : "https://www.youtube.com";
+    const limit = settings.concurrentDownloads || 3;
+    const seen = /* @__PURE__ */ new Set();
+    const uniquePlaylist = playlist.filter((entry) => {
+      const key = entry.url || entry.webpage_url || entry.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const base = urlRef.current.includes("music.youtube") ? "https://music.youtube.com" : "https://www.youtube.com";
+    const playlistListParam = urlRef.current.match(/[?&]list=([^&]+)/)?.[1];
+    const allItems = uniquePlaylist.map((entry) => {
       const rawUrl = entry.url || entry.webpage_url || "";
       const videoUrl = rawUrl.startsWith("http") ? rawUrl : `${base}/watch?v=${entry.id}`;
-      setDownloads((p2) => [{ id: id2, url: videoUrl, title: entry.title, thumbnail: entry.thumbnail, formatLabel, status: "pending", progress: 0, createdAt: Date.now() }, ...p2]);
-      window.api.startDownload({ id: id2, url: videoUrl, formatArgs, downloadPath: settings.downloadPath });
-    }
-  }, [playlist, settings.downloadPath]);
+      const urlWithList = playlistListParam && !videoUrl.includes("list=") ? `${videoUrl}&list=${playlistListParam}` : videoUrl;
+      return { id: genId(), url: urlWithList, entry };
+    });
+    setDownloads((p2) => [
+      ...allItems.map(({ id: id2, url, entry }) => ({
+        id: id2,
+        url,
+        title: entry.title,
+        thumbnail: entry.thumbnail,
+        formatLabel,
+        status: "pending",
+        progress: 0,
+        createdAt: Date.now()
+      })),
+      ...p2
+    ]);
+    const queue = [...allItems];
+    const waitForDownload = (id2) => new Promise((resolve) => {
+      const unsubComplete = window.api.onDownloadComplete((d) => {
+        if (d.id !== id2) return;
+        unsubComplete();
+        unsubError();
+        resolve();
+      });
+      const unsubError = window.api.onDownloadError((d) => {
+        if (d.id !== id2) return;
+        unsubComplete();
+        unsubError();
+        resolve();
+      });
+    });
+    const runNext = async () => {
+      if (queue.length === 0) return;
+      const { id: id2, url } = queue.shift();
+      const donePromise = waitForDownload(id2);
+      const r2 = await window.api.startDownload({ id: id2, url, formatArgs, downloadPath: settings.downloadPath, saveToPlaylistFolder: true });
+      if (!r2.success) {
+        setDownloads((p2) => p2.map((x2) => x2.id === id2 ? { ...x2, status: "error", error: r2.error } : x2));
+        donePromise.catch(() => {
+        });
+      }
+      await donePromise;
+      await runNext();
+    };
+    const initialBatch = Math.min(limit, queue.length);
+    const starters = [];
+    for (let i = 0; i < initialBatch; i++) starters.push(runNext());
+    await Promise.all(starters);
+  }, [playlist, settings.downloadPath, settings.concurrentDownloads]);
   const handleTwitchSelect = reactExports.useCallback((entry, url) => {
     setTwitchChannel(null);
     urlRef.current = url;
@@ -10474,7 +10543,7 @@ function App() {
                 t2.lbl_active
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: downloads.slice(0, 15).map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, onFfmpegHint: handleFfmpegHint, t: t2, lang }, d.id)) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "queue-list", children: [...downloads.filter((d) => d.status === "downloading" || d.status === "pending" || d.status === "processing"), ...downloads.filter((d) => d.status === "complete" || d.status === "error" || d.status === "cancelled").slice(0, 5)].map((d) => /* @__PURE__ */ jsxRuntimeExports.jsx(DownloadCard, { item: d, onCancel: handleCancel, onOpen: handleOpen, onCookieHint: handleCookieHint, onFfmpegHint: handleFfmpegHint, t: t2, lang }, d.id)) })
           ] })
         ] }),
         view === "history" && /* @__PURE__ */ jsxRuntimeExports.jsx(HistoryView, { downloads, t: t2, onClear: async () => {

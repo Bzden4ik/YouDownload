@@ -155,7 +155,7 @@ function getFormatArgs(type: FormatType, quality: VideoQuality | AudioQuality): 
     return map[quality as AudioQuality] ?? map.mp3_best
   }
   const q = quality as VideoQuality
-  return ['-f',`bestvideo[height<=${q}]+bestaudio/bestvideo[height<=${q}]+bestaudio[ext=m4a]/bestvideo+bestaudio`,'--merge-output-format','mp4','--remux-video','mp4']
+  return ['-f',`bestvideo[height<=${q}]+bestaudio[ext=m4a]/bestvideo[height<=${q}]+bestaudio/bestvideo+bestaudio`,'--merge-output-format','mp4','--postprocessor-args','ffmpeg:-c:v copy -c:a aac']
 }
 
 function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality): string {
@@ -895,7 +895,7 @@ declare global {
       getTwitchCacheMeta: (channelName: string) => Promise<{ vods: { fetchedAt: number; pinned: boolean } | null; clips: { fetchedAt: number; pinned: boolean } | null }>
       setTwitchChannelPin: (channelName: string, pinned: boolean) => Promise<{ success: boolean }>
       getTwitchPinnedChannels: () => Promise<string[]>
-      startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number }) => Promise<{ success: boolean; error?: string }>
+      startDownload: (p: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number; saveToPlaylistFolder?: boolean }) => Promise<{ success: boolean; error?: string }>
       cancelDownload: (id: string) => Promise<{ success: boolean }>
       openFolder: (path: string) => Promise<void>
       openExternal: (url: string) => Promise<void>
@@ -1014,7 +1014,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
           </button>
         )}
         <div className="sb-status-row"><span className="sb-dot"/>{!collapsed && <span className="sb-ready">{t.status_ready}</span>}</div>
-        {!collapsed && <div className="sb-version">v1.1.2</div>}
+        {!collapsed && <div className="sb-version">v1.1.3</div>}
       </div>
     </aside>
   )
@@ -2644,18 +2644,27 @@ function StreamView({ t, downloadPath, persistedInput, persistedChannelName, per
     const url = `https://www.twitch.tv/${channelName}`
     const id = genId()
     const PADDING = 25 // запас на рекламу
-    let startSec: number, endSec: number, sectionArg: string
+    let startSec: number, endSec: number
+    let argsWithSection: string[]
     if (direction === 'back') {
       startSec = Math.max(0, markerPos - durSec)
       endSec   = markerPos
-      sectionArg = `*-${durSec + PADDING}`
+      argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', `*-${durSec + PADDING}`]
     } else {
       startSec = markerPos
       endSec   = markerPos + durSec
-      // для fwd нужен реальный offset — используем timestamp-диапазон
-      sectionArg = `*${secsToTimestamp(startSec)}-${secsToTimestamp(endSec)}`
+      // Берём 8 сек запаса перед стартом чтобы ffmpeg попал на keyframe,
+      // и обрезаем лишнее через --postprocessor-args ffmpeg:-ss
+      const PREBUF = 8
+      const adjStart = Math.max(0, startSec - PREBUF)
+      const trimOffset = startSec - adjStart
+      argsWithSection = [
+        ...getTwitchFormatArgs('video', 'source'),
+        '--download-sections', `*${secsToTimestamp(adjStart)}-${secsToTimestamp(endSec)}`,
+        '--force-keyframes-at-cuts',
+        ...(trimOffset > 0 ? ['--postprocessor-args', `ffmpeg:-ss ${trimOffset}`] : []),
+      ]
     }
-    const argsWithSection = [...getTwitchFormatArgs('video', 'source'), '--download-sections', sectionArg]
     onStartDownload({
       id, url,
       title: `${channelName} — ${markerName} [${secsToTimestamp(startSec)} → ${secsToTimestamp(endSec)}]`,
@@ -3074,7 +3083,18 @@ export default function App() {
     let sectionDuration: number | undefined
     if (timeRange) {
       const endStr = timeRange.end >= 0 ? secsToTimestamp(timeRange.end) : 'inf'
-      formatArgs = [...formatArgs, '--download-sections', `*${secsToTimestamp(timeRange.start)}-${endStr}`]
+      // For Twitch VODs: HLS fragments are 2-4s long, ffmpeg can only cut on keyframes.
+      // We fetch 8s before the desired start so ffmpeg has a keyframe to seek from,
+      // then use --postprocessor-args to trim precisely to the requested start time.
+      const TWITCH_PREBUFFER = isTwitch ? 8 : 0
+      const adjustedStart = Math.max(0, timeRange.start - TWITCH_PREBUFFER)
+      const adjustedStartStr = secsToTimestamp(adjustedStart)
+      formatArgs = [...formatArgs, '--download-sections', `*${adjustedStartStr}-${endStr}`, '--force-keyframes-at-cuts']
+      if (isTwitch && TWITCH_PREBUFFER > 0 && adjustedStart < timeRange.start) {
+        // Trim the pre-buffer off with ffmpeg so the clip starts exactly at the requested time
+        const trimOffset = timeRange.start - adjustedStart
+        formatArgs = [...formatArgs, '--postprocessor-args', `ffmpeg:-ss ${trimOffset}`]
+      }
       sectionDuration = timeRange.end >= 0
         ? timeRange.end - timeRange.start
         : (videoInfo.duration ?? 0) - timeRange.start
@@ -3094,15 +3114,72 @@ export default function App() {
     if (!playlist || !window.api) return
     const formatArgs = getFormatArgs(type, quality as VideoQuality | AudioQuality)
     const formatLabel = getFormatLabel(type, quality as VideoQuality | AudioQuality)
-    for (const entry of playlist) {
-      const id = genId()
-      const base = urlRef.current.includes('music.youtube') ? 'https://music.youtube.com' : 'https://www.youtube.com'
+    const limit = settings.concurrentDownloads || 3
+
+    // Deduplicate playlist entries by URL/id
+    const seen = new Set<string>()
+    const uniquePlaylist = playlist.filter(entry => {
+      const key = entry.url || entry.webpage_url || entry.id
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+    // Build all items upfront with ids so we can show the full queue immediately
+    const base = urlRef.current.includes('music.youtube') ? 'https://music.youtube.com' : 'https://www.youtube.com'
+    const playlistListParam = urlRef.current.match(/[?&]list=([^&]+)/)?.[1]
+    const allItems = uniquePlaylist.map(entry => {
       const rawUrl = entry.url || entry.webpage_url || ''
       const videoUrl = rawUrl.startsWith('http') ? rawUrl : `${base}/watch?v=${entry.id}`
-      setDownloads(p => [{ id, url:videoUrl, title:entry.title, thumbnail:entry.thumbnail, formatLabel, status:'pending', progress:0, createdAt:Date.now() }, ...p])
-      window.api.startDownload({ id, url:videoUrl, formatArgs, downloadPath:settings.downloadPath })
+      const urlWithList = playlistListParam && !videoUrl.includes('list=') ? `${videoUrl}&list=${playlistListParam}` : videoUrl
+      return { id: genId(), url: urlWithList, entry }
+    })
+
+    // Add all as pending immediately so the full queue is visible
+    setDownloads(p => [
+      ...allItems.map(({ id, url, entry }) => ({
+        id, url, title: entry.title, thumbnail: entry.thumbnail,
+        formatLabel, status: 'pending' as const, progress: 0, createdAt: Date.now()
+      })),
+      ...p
+    ])
+
+    const queue = [...allItems]
+
+    // Wait for download-complete or download-error event for a specific id
+    const waitForDownload = (id: string): Promise<void> => new Promise(resolve => {
+      const unsubComplete = window.api!.onDownloadComplete((d: { id: string }) => {
+        if (d.id !== id) return
+        unsubComplete()
+        unsubError()
+        resolve()
+      })
+      const unsubError = window.api!.onDownloadError((d: { id: string; error: string }) => {
+        if (d.id !== id) return
+        unsubComplete()
+        unsubError()
+        resolve()
+      })
+    })
+
+    const runNext = async (): Promise<void> => {
+      if (queue.length === 0) return
+      const { id, url } = queue.shift()!
+      const donePromise = waitForDownload(id)
+      const r = await window.api!.startDownload({ id, url, formatArgs, downloadPath: settings.downloadPath, saveToPlaylistFolder: true })
+      if (!r.success) {
+        setDownloads(p => p.map(x => x.id === id ? { ...x, status: 'error' as const, error: r.error } : x))
+        donePromise.catch(() => {})
+      }
+      await donePromise
+      await runNext()
     }
-  }, [playlist, settings.downloadPath])
+
+    const initialBatch = Math.min(limit, queue.length)
+    const starters: Promise<void>[] = []
+    for (let i = 0; i < initialBatch; i++) starters.push(runNext())
+    await Promise.all(starters)
+  }, [playlist, settings.downloadPath, settings.concurrentDownloads])
 
   const handleTwitchSelect = useCallback((entry: PlaylistEntry, url: string) => {
     setTwitchChannel(null)
@@ -3247,7 +3324,7 @@ export default function App() {
               {downloads.length>0 && (
                 <div className="queue-section">
                   <div className="queue-head"><span className="section-eyebrow-sm">{t.lbl_downloads}</span>{activeCount>0&&<span className="queue-badge">{activeCount} {t.lbl_active}</span>}</div>
-                  <div className="queue-list">{downloads.slice(0,15).map(d=><DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} onFfmpegHint={handleFfmpegHint} t={t} lang={lang}/>)}</div>
+                  <div className="queue-list">{[...downloads.filter(d=>d.status==='downloading'||d.status==='pending'||d.status==='processing'),...downloads.filter(d=>d.status==='complete'||d.status==='error'||d.status==='cancelled').slice(0,5)].map(d=><DownloadCard key={d.id} item={d} onCancel={handleCancel} onOpen={handleOpen} onCookieHint={handleCookieHint} onFfmpegHint={handleFfmpegHint} t={t} lang={lang}/>)}</div>
                 </div>
               )}
             </div>

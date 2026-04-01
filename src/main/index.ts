@@ -1295,10 +1295,23 @@ ipcMain.handle('fetch-playlist-info', async (_e, url: string) => {
 })
 
 // Start download
-ipcMain.handle('start-download', async (event, payload: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number }) => {
+ipcMain.handle('start-download', async (event, payload: { id: string; url: string; formatArgs: string[]; downloadPath: string; sectionDuration?: number; saveToPlaylistFolder?: boolean }) => {
   if (!ytDlpWrap) return { success: false, error: 'yt-dlp not initialized' }
   const s = store.get('settings')
-  const outDir = payload.downloadPath || s.downloadPath
+  const baseDir = payload.downloadPath || s.downloadPath
+  // Save to YouPlayList subfolder when explicitly requested OR pure playlist URL
+  const saveToPlaylistFolder =
+    payload.saveToPlaylistFolder ||
+    (payload.url.includes('youtube.com') && payload.url.includes('/playlist')) ||
+    payload.formatArgs.includes('--yes-playlist')
+  const outDir = saveToPlaylistFolder
+    ? (() => { const d = join(baseDir, 'YouPlayList'); mkdirSync(d, { recursive: true }); return d })()
+    : baseDir
+
+  // --yes-playlist only for pure playlist URLs, NOT for individual videos from handleDownloadAll
+  const isYouTubePlaylist =
+    (payload.url.includes('youtube.com') && payload.url.includes('/playlist')) ||
+    payload.formatArgs.includes('--yes-playlist')
   payload = { ...payload, url: normalizeVkUrl(payload.url) }
 
   // YouTube Music содержит только аудио — заменяем видео-форматы на аудио
@@ -1340,7 +1353,8 @@ ipcMain.handle('start-download', async (event, payload: { id: string; url: strin
 
   const buildArgs = (sslFallback: boolean) =>
     [payload.url, ...formatArgs, ...getBaseArgs(s.cookiesFromBrowser, s.cookiesFile, payload.url, undefined, sslFallback),
-      '-o', join(outDir, '%(title)s.%(ext)s'), '--no-playlist', '--progress', '--newline']
+      '-o', join(outDir, '%(title)s.%(ext)s'), '--windows-filenames', '--no-part',
+      ...(isYouTubePlaylist ? ['--yes-playlist'] : ['--no-playlist']), '--progress', '--newline']
 
   // DEBUG: log full yt-dlp args before starting download
   console.log('\n─── start-download ─────────────────────────────────')
