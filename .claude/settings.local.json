@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Desktop_Commander__get_config",
+      "mcp__Desktop_Commander__set_config_value",
+      "mcp__Desktop_Commander__read_file",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Bash(done)",
+      "Bash(ffprobe -v quiet -print_format json -show_streams \"C:/Users/warfa/Downloads/YouPlayList/грустный ночной плейлист ｜ sad night playlist #1 ✩°｡ ⋆⸜ 🎧.mp4\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(s.get\\(''''codec_type''''\\), s.get\\(''''codec_name''''\\), s.get\\(''''bit_rate'''',''''?''''\\)\\) for s in d.get\\(''''streams'''',[]\\)]\")",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:aysra.github.io)",
+      "WebFetch(domain:man.archlinux.org)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:forum.videohelp.com)"
+    ]
+  }
+}

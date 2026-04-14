@@ -1014,7 +1014,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
           </button>
         )}
         <div className="sb-status-row"><span className="sb-dot"/>{!collapsed && <span className="sb-ready">{t.status_ready}</span>}</div>
-        {!collapsed && <div className="sb-version">v1.1.3</div>}
+        {!collapsed && <div className="sb-version">v1.1.4</div>}
       </div>
     </aside>
   )
@@ -1122,6 +1122,7 @@ function FormatSelector({ onDownload, onDownloadAll, disabled, t, initType, init
   const [ftype, setFtype] = useState<FormatType>(initType)
   const [vq, setVq] = useState<VideoQuality>(initVq)
   const [aq, setAq] = useState<AudioQuality>(initAq)
+  useEffect(() => { setFtype(initType) }, [initType])
   const [tq, setTq] = useState<TwitchQuality>('source')
   const [useTimeRange, setUseTimeRange] = useState(false)
   const [trStart, setTrStart] = useState(0)
@@ -2013,7 +2014,10 @@ function SettingsView({ settings, onSave, onPickFolder, t, theme, onThemeChange,
       </div>
       <div className="set-group">
         <div className="set-label">{t.set_concurrent}</div>
-        <div className="set-radios">{[1,2,3,5].map(n=><button key={n} className={`set-radio ${local.concurrentDownloads===n?'set-radio-on':''}`} onClick={()=>setLocal(p=>({...p,concurrentDownloads:n}))}>{n}</button>)}</div>
+        <div className="set-radios">
+          {[1,2,3,5,10,20].map(n=><button key={n} className={`set-radio ${local.concurrentDownloads===n?'set-radio-on':''}`} onClick={()=>setLocal(p=>({...p,concurrentDownloads:n}))}>{n}</button>)}
+          <button className={`set-radio ${local.concurrentDownloads===0?'set-radio-on':''}`} onClick={()=>setLocal(p=>({...p,concurrentDownloads:0}))}>∞</button>
+        </div>
       </div>
       <div className="set-group">
         <div className="set-label">{t.set_cookies}</div>
@@ -2963,7 +2967,7 @@ export default function App() {
       setAutoCheckUpdates(s.autoCheckUpdates !== false)
       setSidebarCollapsed(!!s.sidebarCollapsed)
       const elSettings = await window.api.getSettings()
-      setSettings({ ...elSettings, downloadPath:s.downloadPath||elSettings.downloadPath, concurrentDownloads:s.concurrentDownloads||elSettings.concurrentDownloads })
+      setSettings({ ...elSettings, downloadPath:s.downloadPath||elSettings.downloadPath, concurrentDownloads:s.concurrentDownloads != null ? s.concurrentDownloads : elSettings.concurrentDownloads })
       const hist = await loadHistory()
       setDownloads(hist.map(h => ({ ...h, progress:100, speed:undefined, eta:undefined, error:undefined })))
       const { exists } = await window.api.checkYtDlp()
@@ -3060,6 +3064,8 @@ export default function App() {
     setFetching(true); setFetchErr(''); setVideoInfo(null); setPlaylist(null); setTwitchChannel(null); setShowPlayer(false)
     urlRef.current = url
     setPlatform(detectPlatform(url))
+    if (url.includes('music.youtube.com')) setInitFmt(p => ({ ...p, type: 'audio' }))
+    else if (url.includes('youtube.com') || url.includes('youtu.be')) setInitFmt(p => ({ ...p, type: 'video' }))
     if (isTwitchChannelUrl(url)) { setFetching(false); setTwitchChannel(getTwitchChannelName(url)); return }
     const r = await window.api.fetchVideoInfo(url)
     setFetching(false)
@@ -3114,7 +3120,6 @@ export default function App() {
     if (!playlist || !window.api) return
     const formatArgs = getFormatArgs(type, quality as VideoQuality | AudioQuality)
     const formatLabel = getFormatLabel(type, quality as VideoQuality | AudioQuality)
-    const limit = settings.concurrentDownloads || 3
 
     // Deduplicate playlist entries by URL/id
     const seen = new Set<string>()
@@ -3125,12 +3130,16 @@ export default function App() {
       return true
     })
 
+    const limit = settings.concurrentDownloads === 0 ? uniquePlaylist.length : (settings.concurrentDownloads || 3)
+
     // Build all items upfront with ids so we can show the full queue immediately
-    const base = urlRef.current.includes('music.youtube') ? 'https://music.youtube.com' : 'https://www.youtube.com'
+    const isMusicYT = urlRef.current.includes('music.youtube')
+    const base = isMusicYT && type !== 'video' ? 'https://music.youtube.com' : 'https://www.youtube.com'
     const playlistListParam = urlRef.current.match(/[?&]list=([^&]+)/)?.[1]
     const allItems = uniquePlaylist.map(entry => {
       const rawUrl = entry.url || entry.webpage_url || ''
-      const videoUrl = rawUrl.startsWith('http') ? rawUrl : `${base}/watch?v=${entry.id}`
+      let videoUrl = rawUrl.startsWith('http') ? rawUrl : `${base}/watch?v=${entry.id}`
+      if (type === 'video') videoUrl = videoUrl.replace('music.youtube.com', 'www.youtube.com')
       const urlWithList = playlistListParam && !videoUrl.includes('list=') ? `${videoUrl}&list=${playlistListParam}` : videoUrl
       return { id: genId(), url: urlWithList, entry }
     })

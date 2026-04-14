@@ -1212,6 +1212,10 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
         resolve("ssl_error");
         return;
       }
+      if (raw.includes("--live-from-start is passed") || raw.includes("no formats that can be downloaded from the start")) {
+        resolve("no_live_from_start");
+        return;
+      }
       if (sectionTimer) {
         clearInterval(sectionTimer);
         sectionTimer = null;
@@ -1236,22 +1240,35 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       resolve("complete");
     });
   });
+  const clearTimers = () => {
+    if (sectionTimer) {
+      clearInterval(sectionTimer);
+      sectionTimer = null;
+    }
+  };
   try {
     const result1 = await runDownload(buildArgs(false));
     if (result1 === "complete") {
-      if (sectionTimer) {
-        clearInterval(sectionTimer);
-        sectionTimer = null;
-      }
+      clearTimers();
       event.sender.send("download-complete", { id: payload.id });
       activeDownloads.delete(payload.id);
       return { success: true };
     }
     if (result1 === "error") {
-      if (sectionTimer) {
-        clearInterval(sectionTimer);
-        sectionTimer = null;
+      clearTimers();
+      return { success: true };
+    }
+    if (result1 === "no_live_from_start") {
+      console.log("[live-from-start] not supported, falling back to live edge");
+      const fallbackArgs = buildArgs(false).filter((a) => a !== "--live-from-start");
+      const result1b = await runDownload(fallbackArgs);
+      if (result1b === "complete") {
+        clearTimers();
+        event.sender.send("download-complete", { id: payload.id });
+        activeDownloads.delete(payload.id);
+        return { success: true };
       }
+      clearTimers();
       return { success: true };
     }
     if (result1 === "ssl_error") {
@@ -1265,27 +1282,18 @@ electron.ipcMain.handle("start-download", async (event, payload) => {
       });
       const result2 = await runDownload(buildArgs(true));
       if (result2 === "complete") {
-        if (sectionTimer) {
-          clearInterval(sectionTimer);
-          sectionTimer = null;
-        }
+        clearTimers();
         event.sender.send("download-complete", { id: payload.id });
         activeDownloads.delete(payload.id);
         return { success: true };
       }
       if (result2 === "ssl_error") {
-        if (sectionTimer) {
-          clearInterval(sectionTimer);
-          sectionTimer = null;
-        }
+        clearTimers();
         event.sender.send("download-error", { id: payload.id, error: "ssl_error" });
         activeDownloads.delete(payload.id);
       }
       if (result2 === "error") {
-        if (sectionTimer) {
-          clearInterval(sectionTimer);
-          sectionTimer = null;
-        }
+        clearTimers();
       }
     }
     return { success: true };
