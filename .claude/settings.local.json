@@ -14,7 +14,15 @@
       "WebFetch(domain:aysra.github.io)",
       "WebFetch(domain:man.archlinux.org)",
       "WebFetch(domain:gist.github.com)",
-      "WebFetch(domain:forum.videohelp.com)"
+      "WebFetch(domain:forum.videohelp.com)",
+      "Bash(./bin/yt-dlp.exe --list-formats --no-playlist \"https://www.youtube.com/shorts/HJ_rLf39xjs\")",
+      "Bash(./bin/yt-dlp.exe --extractor-args \"youtube:player_client=tv_embedded\" --js-runtimes \"quickjs:./bin/qjs.exe\" --list-formats --no-playlist \"https://www.youtube.com/shorts/HJ_rLf39xjs\")",
+      "Bash(./bin/yt-dlp.exe --extractor-args \"youtube:player_client=tv_embedded\" --js-runtimes \"quickjs:./bin/qjs.exe\" -f \"bv*+ba/b\" -S \"res:1080,ext:mp4:m4a\" --no-playlist --simulate \"https://www.youtube.com/shorts/HJ_rLf39xjs\")",
+      "Bash(./bin/yt-dlp.exe --extractor-args \"youtube:player_client=tv_embedded\" --js-runtimes \"quickjs:./bin/qjs.exe\" -f \"bv*+ba/b\" -S \"res:720,ext:mp4:m4a\" --no-playlist --simulate \"https://www.youtube.com/shorts/HJ_rLf39xjs\")",
+      "Bash(./bin/yt-dlp.exe --extractor-args \"youtube:player_client=tv_embedded\" --js-runtimes \"quickjs:./bin/qjs.exe\" -f \"bv*+ba/b\" -S \"res:1080,ext:mp4:m4a\" --no-playlist --simulate \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\")",
+      "Bash(./bin/yt-dlp.exe --extractor-args \"youtube:player_client=tv_embedded\" --js-runtimes \"quickjs:./bin/qjs.exe\" -f \"bv*+ba/b\" -S \"res:480,ext:mp4:m4a\" --no-playlist --simulate \"https://www.youtube.com/shorts/HJ_rLf39xjs\")",
+      "Bash(./bin/yt-dlp.exe --extractor-args \"youtube:player_client=tv_embedded\" --js-runtimes \"quickjs:./bin/qjs.exe\" -f \"bv*+ba/b\" -S \"res:360,ext:mp4:m4a\" --no-playlist --simulate \"https://www.youtube.com/shorts/HJ_rLf39xjs\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

@@ -129,16 +129,18 @@ function getAvailableQualities(formats?: VideoFormat[]): VideoQuality[] {
   const ALL: VideoQuality[] = ['2160', '1440', '1080', '720', '480', '360', '240', '144']
   if (!formats || formats.length === 0) return ALL
 
-  // Collect all unique heights that have a video stream
-  const heights = new Set<number>()
+  // Collect unique resolutions (min of width/height) so vertical Shorts map correctly:
+  // a 1080x1920 Short is "1080p", not "1920p".
+  const resolutions = new Set<number>()
   for (const f of formats) {
-    if (f.height && f.vcodec && f.vcodec !== 'none') {
-      heights.add(f.height)
+    if (f.vcodec && f.vcodec !== 'none') {
+      const res = f.width && f.height ? Math.min(f.width, f.height) : f.height
+      if (res) resolutions.add(res)
     }
   }
-  if (heights.size === 0) return ALL
+  if (resolutions.size === 0) return ALL
 
-  const maxH = Math.max(...heights)
+  const maxH = Math.max(...resolutions)
 
   // Return all standard qualities up to the max available
   return ALL.filter(q => parseInt(q) <= maxH)
@@ -155,7 +157,10 @@ function getFormatArgs(type: FormatType, quality: VideoQuality | AudioQuality): 
     return map[quality as AudioQuality] ?? map.mp3_best
   }
   const q = quality as VideoQuality
-  return ['-f',`bestvideo[height<=${q}]+bestaudio[ext=m4a]/bestvideo[height<=${q}]+bestaudio/bestvideo+bestaudio`,'--merge-output-format','mp4','--postprocessor-args','ffmpeg:-c:v copy -c:a aac']
+  // Use -S "res:Q" (sort by min(width,height)) instead of [height<=Q] filter so vertical
+  // Shorts pick the real Q-quality stream. A Short's 1080p has width=1080/height=1920,
+  // so [height<=1080] would exclude the real 1080p and fall through to a 608x1080 "480p" variant.
+  return ['-f','bestvideo*+bestaudio/best','-S',`res:${q},ext:mp4:m4a`,'--merge-output-format','mp4','--postprocessor-args','ffmpeg:-c:v copy -c:a aac']
 }
 
 function getFormatLabel(type: FormatType, quality: VideoQuality | AudioQuality): string {
@@ -1014,7 +1019,7 @@ function Sidebar({ view, onChange, activeCount, lang, onLangToggle, collapsed, o
           </button>
         )}
         <div className="sb-status-row"><span className="sb-dot"/>{!collapsed && <span className="sb-ready">{t.status_ready}</span>}</div>
-        {!collapsed && <div className="sb-version">v1.1.4</div>}
+        {!collapsed && <div className="sb-version">1.1.5</div>}
       </div>
     </aside>
   )
